@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Roster</title>
+<style>
+:root{--bg:#f6f7f9;--c:#fff;--t:#1b1f24;--m:#6b7280;--b:#e3e6ea;--a:#2563eb;--g:#15803d;--gb:#dcfce7;--w:#b45309;--wb:#fef3c7;--r:#b91c1c;--rb:#fee2e2;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#111418;--c:#1a1f26;--t:#e8eaed;--m:#9aa3af;--b:#2c333c;--a:#60a5fa;--g:#4ade80;--gb:#14351f;--w:#fbbf24;--wb:#3a2d0c;--r:#f87171;--rb:#3b1515}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px/1.4 system-ui,sans-serif}
+main{max-width:780px;margin:auto;padding:14px}input,select,button,textarea{font:inherit;color:var(--t);background:var(--c);border:1px solid var(--b);border-radius:8px;padding:8px 10px}
+button{cursor:pointer}button.p{background:var(--a);border-color:var(--a);color:#fff}button:disabled{opacity:.4}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.row{background:var(--c);border:1px solid var(--b);border-radius:10px;padding:10px;margin-bottom:8px}
+.me{border-color:var(--a)}.s{color:var(--m);font-size:13px}.bd{font-size:12px;padding:2px 8px;border-radius:99px;font-weight:600;margin-left:6px;background:var(--b)}
+.on{background:var(--gb);color:var(--g)}.lv{background:var(--wb);color:var(--w)}.mod{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:9}
+.box{background:var(--c);border-radius:12px;padding:18px;max-width:420px;width:100%}.urg{border-left:5px solid var(--r)}#err{color:var(--r);font-size:13px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.tb{border-collapse:collapse;width:100%;font-size:13px}.tb th{background:#facc15;color:#000;padding:6px;border:1px solid var(--b);text-align:left;white-space:nowrap}.tb td{padding:6px;border:1px solid var(--b);vertical-align:top}.tb tr.mr td{background:var(--gb)}.tb td.wh{background:#c026d3;color:#fff}.tb td.wo{background:#84b36b;color:#000}
+</style></head><body><main id="app"></main><div id="modal"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+window.onerror=(m,u,l)=>{document.body.insertAdjacentHTML('afterbegin','<pre style="color:#b91c1c;white-space:pre-wrap;padding:12px;font-size:14px">Error: '+m+' (line '+l+')</pre>')};
+window.onunhandledrejection=e=>window.onerror(String(e.reason&&e.reason.message||e.reason));
+if(typeof supabase==='undefined')throw new Error('The Supabase library did not load. Your network may be blocking cdn.jsdelivr.net');
+const URL_='https://mapvhiijlftmqiwljfnt.supabase.co', KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hcHZoaWlqbGZ0bXFpd2xqZm50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0OTAwNjYsImV4cCI6MjEwOTA2NjA2Nn0.p4cI9Uof6wazR7w2JFQhcBHqr08rXWlPvR3VMXMssVk', SHIFT_LEN=510; // minutes, used when no end time is given
+const sb=supabase.createClient(URL_,KEY), $=id=>document.getElementById(id), pad=n=>(n<10?'0':'')+n;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()), TODAY=()=>iso(new Date());
+const mt=v=>/^0\.\d+$/.test(v)?hm(Math.round(v*1440)):v;
+const hm=m=>m==null?'':pad(Math.floor(m/60)%24)+':'+pad(m%60);
+let me=null,emps=[],rows=[],att={},notices=[],notifs=[],day=TODAY(),team='',mine=localStorage.mine==='1',view=localStorage.view||'cards',tab='day',prev=null;
+const staff=()=>me&&['admin','lead'].includes(me.role);
+const err=t=>{const e=$('err');if(e)e.textContent=t||''};
+
+async function boot(){
+  const {data:{session}}=await sb.auth.getSession();
+  const {data}=await sb.from('employees').select('*').order('name');emps=data||[];
+  if(session){me=emps.find(e=>e.user_id===session.user.id);if(me)return load()}
+  loginView();
+}
+function loginView(){
+  $('app').innerHTML=`<h2>Team Roster</h2><div class="row"><div class="bar"><select id="who">${emps.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select>
+  <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="6-digit PIN"></div>
+  <div class="bar"><button class="p" id="li">Log in</button><button id="reg">First time? Set my PIN</button></div><div id="err"></div></div>`;
+  const cred=()=>({email:$('who').value+'@gmail.com',password:$('pin').value});
+  $('li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());error?err('Wrong name or PIN.'):boot()};
+  $('reg').onclick=async()=>{const c=cred();if(!/^\d{6}$/.test(c.password))return err('PIN must be 6 digits.');
+    const {error}=await sb.auth.signUp(c);if(error)return err('Could not set PIN: '+error.message+' (if you already set a PIN, use Log in)');
+    const r=await sb.rpc('claim_employee',{eid:$('who').value});r.error?err(r.error.message):boot()};
+}
+async function load(){
+  const [a,n,t,f]=await Promise.all([sb.from('assignments').select('*').order('d'),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100)]);
+  rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
+  render();showNotices();
+}
+function days(){ // group assignments into person-days
+  const m={};rows.forEach(r=>{const k=r.d+'|'+(r.employee_id||r.person_raw)+'|'+r.team;(m[k]=m[k]||{d:r.d,emp:r.employee_id,name:r.person_raw,team:r.team,items:[]}).items.push(r)});
+  return Object.values(m).map(p=>{const w=p.items.filter(i=>i.kind!=='leave'&&i.start_min!=null);p.leave=p.items.some(i=>i.kind==='leave');
+    if(w.length){p.s=Math.min(...w.map(i=>i.start_min));p.e=Math.max(...w.map(i=>i.end_min));p.shift=p.s<420?1:p.e>1440?3:2}return p});
+}
+function render(){
+  const teams=[...new Set(rows.map(r=>r.team))],all=days(),my=tab==='my'||mine,M={},L=new Set();
+  rows.filter(r=>(tab==='my'?r.d>=TODAY():r.d===day)&&(!team||r.team===team)).forEach(r=>{
+    const n=r.employee_id?(emps.find(e=>e.id===r.employee_id)||{}).name:r.person_raw+' (unmatched)';
+    if(r.kind==='leave'){L.add(n);return}
+    const k=r.d+'|'+r.team+'|'+r.row_no+'|'+r.series,q=M[k]=M[k]||{d:r.d,team:r.team,series:r.series,mn:r.match_no,cov:r.coverage,t:r.match_time,rep:r.reporting,wf:r.work_from,cm:r.comment,kind:'rank',sc:[],rk:[],s:null};
+    if(r.kind==='rank')q.rk.push({id:r.employee_id,n});else{q.kind=r.kind;q.sc.push({id:r.employee_id,n});if(r.start_min!=null)q.s=q.s==null?r.start_min:Math.min(q.s,r.start_min)}});
+  const ms=Object.values(M).filter(q=>!my||q.sc.concat(q.rk).some(x=>x.id===me.id)).sort((a,b)=>a.d.localeCompare(b.d)||(a.s??9999)-(b.s??9999));
+  const nl=a=>a.map(x=>x.id===me.id?'<b style="color:var(--a)">'+esc(x.n)+'</b>':esc(x.n)).join(', ');
+  const card=q=>{const mi=q.sc.concat(q.rk).some(x=>x.id===me.id);
+    return `<div class="row ${mi?'me':''}">${tab==='my'?'<div class="s">'+wd(q.d)+'</div>':''}<b>${esc(q.series)}</b>${q.mn?' <span class="s">· Match '+esc(q.mn)+'</span>':''}${q.kind!=='match'?' <span class="bd">'+esc(q.kind.toUpperCase())+'</span>':''}
+    <div class="s">${[esc(mt(q.t||'')),q.rep&&q.rep!=='-'?'Report '+esc(q.rep):'',q.cov?'Level '+esc(q.cov):'',esc(q.wf),esc(q.team)].filter(Boolean).join(' · ')}</div>
+    <div>${['support','sanitary'].includes(q.kind)?'Assigned':'Scoring'}: ${nl(q.sc)||'—'}</div>${q.rk.length?'<div>Rankings update: '+nl(q.rk)+'</div>':''}${q.cm?'<div class="s">'+esc(q.cm)+'</div>':''}</div>`};
+  const mp=tab==='day'?all.find(p=>p.emp===me.id&&p.d===day&&(!team||p.team===team)):null,a=mp&&att[me.id+'|'+day];
+  const du=mp?[...new Set(mp.items.filter(i=>['rank','support','sanitary'].includes(i.kind)).map(i=>({rank:'Rankings update',support:'Client support',sanitary:'Sanitary checks'}[i.kind])))]:[];
+  const dayCard=mp?`<div class="row me"><b>Your day</b> ${mp.s!=null?'<span class="bd">Shift '+mp.shift+'</span> '+hm(mp.s)+'–'+hm(mp.e)+(du.length?' <span class="bd">+ '+du.join(', ')+'</span>':''):mp.leave?'<span class="bd lv">Leave</span>':'<span class="bd">'+du.join(', ')+' duty</span>'}${a?.logout_at?' <span class="bd">Logged out</span>':a?.login_at?' <span class="bd on">Working</span>':''}${day===TODAY()&&mp.s!=null&&!a?.logout_at?'<div class="bar"><button class="p" data-a="'+(a?.login_at?'out':'in')+'" data-d="'+day+'">'+(a?.login_at?'Log out':'Log in')+'</button></div>':''}</div>`:'';
+  const on=Object.values(att).filter(x=>x.d===day&&x.login_at&&!x.logout_at).length;
+  const tbl=()=>`<div style="overflow-x:auto"><table class="tb"><tr><th>Match Time</th><th>Reporting</th><th>Series</th><th>Match No.</th><th>Level</th><th>Scorers</th><th>Comment</th><th>Rankings Update</th><th>Work From</th></tr>${ms.map(q=>`<tr class="${q.sc.concat(q.rk).some(x=>x.id===me.id)?'mr':''}"><td>${esc(mt(q.t||''))}</td><td>${q.rep&&q.rep!=='-'?esc(q.rep):'-'}</td><td><b>${esc(q.series)}</b></td><td>${esc(q.mn)}</td><td>${esc(q.cov)}</td><td>${nl(q.sc)}</td><td>${esc(q.cm)}</td><td>${nl(q.rk)}</td><td class="${/home/i.test(q.wf)?'wh':/office/i.test(q.wf)?'wo':''}">${esc(q.wf)}</td></tr>`).join('')}</table></div>`;
+  $('app').innerHTML=`<div class="top"><h2>Team Roster</h2><div class="s">${esc(me.name)} · ${me.role} <button id="bell">🔔${unread()?' <b>'+unread()+'</b>':''}</button> <button id="out">Sign out</button></div></div>
+  <div class="bar"><button id="t1" class="${tab==='day'?'p':''}">Day roster</button><button id="t2" class="${tab==='my'?'p':''}">My shifts</button>${staff()?`<button id="t3" class="${tab==='mng'?'p':''}">Manage</button>`:''}</div>
+  ${nextBanner(all)}${tab==='mng'?manage():`<div class="bar">${tab==='day'?`<button id="pv">‹</button><input type="date" id="dp" value="${day}"><button id="nx">›</button><button id="td">Today</button>
+  <label><input type="checkbox" id="mn" ${mine?'checked':''}> Only my matches</label> <button id="vw">${view==='table'?'Cards view':'Table view'}</button>`:''}<select id="tm"><option value="">All teams</option>${teams.map(t=>`<option ${t===team?'selected':''}>${esc(t)}</option>`).join('')}</select>
+  ${tab==='day'?`<span class="s">${ms.length} matches · ${on} working now</span>`:''}</div><div id="err"></div>${dayCard}${tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row"><b>On leave</b><div class="s">'+[...L].map(esc).join(', ')+'</div></div>':''}`}`;
+  const g=id=>$(id);g('bell').onclick=()=>bellPanel();g('out').onclick=async()=>{await sb.auth.signOut();me=null;boot()};
+  g('t1').onclick=()=>{tab='day';render()};g('t2').onclick=()=>{tab='my';render()};if(g('t3'))g('t3').onclick=()=>{tab='mng';render()};
+  if(g('tm'))g('tm').onchange=e=>{team=e.target.value;render()};if(g('vw'))g('vw').onclick=()=>{view=view==='table'?'cards':'table';localStorage.view=view;render()};if(g('dp')){g('dp').onchange=e=>{day=e.target.value;render()};g('mn').onchange=e=>{mine=e.target.checked;localStorage.mine=mine?'1':'0';render()};g('td').onclick=()=>{day=TODAY();render()};
+    const sh=n=>{const d=new Date(day+'T00:00');d.setDate(d.getDate()+n);day=iso(d);render()};g('pv').onclick=()=>sh(-1);g('nx').onclick=()=>sh(1)}
+  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>punch(b.dataset.a,b.dataset.d));
+  if(tab==='mng')wireManage();
+}
+async function punch(a,d){
+  const k=me.id+'|'+d,now=new Date().toISOString(),o=att[k]||{employee_id:me.id,d};
+  if(a==='in')o.login_at=now;else o.logout_at=now;
+  const {error}=await sb.from('attendance').upsert(o);if(error)return err(error.message);att[k]=o;render();
+  if(a==='out')timesheet(o);
+}
+function timesheet(o){
+  $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Update your timesheets</h3><p>Before you leave, please update today’s hours in both:</p>
+  <label><input type="checkbox" id="c1"> Darwin updated</label><br><label><input type="checkbox" id="c2"> Zoho timesheet updated</label>
+  <div class="bar"><button class="p" id="ok" disabled>Done</button></div></div></div>`;
+  const chk=()=>$('ok').disabled=!($('c1').checked&&$('c2').checked);$('c1').onchange=chk;$('c2').onchange=chk;
+  $('ok').onclick=async()=>{o.ts_darwin=o.ts_zoho=true;await sb.from('attendance').upsert(o);$('modal').innerHTML=''};
+}
+function showNotices(){
+  const t=TODAY(),q=notices.filter(n=>n.date_from<=t&&t<=n.date_to&&(!n.team||n.team===me.team)&&!localStorage['ack'+n.id+t]);
+  q.sort((a,b)=>b.urgent-a.urgent);const next=()=>{const n=q.shift();if(!n){unreadPopup();return}
+    $('modal').innerHTML=`<div class="mod"><div class="box ${n.urgent?'urg':''}"><h3>${n.urgent?'⚠ Priority reminder':'Reminder'}</h3><p>${esc(n.body)}</p><button class="p" id="gt">Got it</button></div></div>`;
+    $('gt').onclick=()=>{localStorage['ack'+n.id+t]=1;next()}};next();
+}
+function manage(){return `<div class="row"><h3>Upload daily roster (Excel)</h3><div class="bar"><input id="tn" placeholder="Team (e.g. Cricket, Tagging)" value="Cricket"><input type="file" id="fl" accept=".xlsx,.xls"></div>
+  <div id="pv2" class="s"></div><label><input type="checkbox" id="nn" checked> Notify employees</label> <button class="p" id="sv" disabled>Save to dashboard</button><div class="s">Re-uploading a date replaces that date for that team. Log in/out records are kept.</div></div>
+  <div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf"><input type="date" id="nt"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
+  <textarea id="nb" rows="2" style="width:100%" placeholder="Message"></textarea><button class="p" id="na">Add</button>
+  ${notices.map(n=>`<div class="s">${n.date_from}→${n.date_to} ${esc(n.body)} <button data-dn="${n.id}">✕</button></div>`).join('')}</div>
+  <div class="row"><h3>Add employee</h3><div class="bar"><input id="fn" placeholder="Full name"><input id="sn" placeholder="Short name on daily roster"><input id="et" placeholder="Team" value="Cricket"><button class="p" id="ad">Add</button></div>
+  <div class="s">Several short names for one person: separate with commas.</div><h3>Add many</h3><textarea id="ne" rows="3" style="width:100%" placeholder="One per line: Full name | Short name | Team"></textarea><button class="p" id="ae">Add all</button>
+  ${emps.map(e=>`<div class="s">${esc(e.name)} (${esc(e.short_name||'no short name')}) · ${esc(e.team)} · <select data-r="${e.id}">${['employee','lead','admin'].map(r=>`<option ${r===e.role?'selected':''}>${r}</option>`).join('')}</select></div>`).join('')}</div>`}
+function match(raw){ // exact short name first, then fall back to guessing "Akash K" style names
+  const k=raw.toLowerCase().replace(/[.()]/g,'').replace(/\s+/g,' ').trim();if(!k)return null;
+  const ex=emps.filter(e=>(e.short_name||'').split(',').some(x=>x.toLowerCase().replace(/[.()]/g,'').replace(/\s+/g,' ').trim()===k));if(ex.length===1)return ex[0];
+  const w=k.split(' ');
+  const c=emps.filter(e=>{const p=e.name.toLowerCase().split(/\s+/);return p[0]===w[0]&&(!w[1]||(p[1]||'').startsWith(w[1]))});return c.length===1?c[0]:null}
+const tmin=v=>typeof v==='number'?Math.round((v%1)*1440):(m=>m?+m[1]*60+ +m[2]:null)(String(v||'').match(/(\d{1,2}):(\d{2})/));
+const clean=x=>{x=x.replace(/\(.*$/,'').replace(/^standings?\s*-\s*/i,'').trim();return /^(-|everyone.*|update.*|.*championship)$/i.test(x)?'':x};
+function parse(ws,tn){
+  const out=[],unm=new Set();XLSX.utils.sheet_to_json(ws,{header:1,raw:true}).forEach((r,ri)=>{
+    if(typeof r[0]!=='number'||r[0]<40000)return;const p=XLSX.SSF.parse_date_code(r[0]),d=p.y+'-'+pad(p.m)+'-'+pad(p.d);
+    const ser=String(r[3]||'').trim(),sl=ser.toLowerCase();let kind='match',who=r[6];
+    if(String(r[1]).toLowerCase()==='leave'){kind='leave';who=r[2]}else if(sl==='normal'){kind='normal';who=r[4]}else if(sl==='qc'){kind='qc'}
+    else if(sl==='client support'){kind='support';who=r[4]}else if(sl.startsWith('ensure')){kind='sanitary';who=r[4]}else if(!ser||sl==='note')return;
+    if(!who)return;const rep=String(r[2]||''),ts=(rep.match(/\d{1,2}:\d{2}/g)||[]);
+    let s=ts.length?tmin(ts[0]):tmin(r[1]),e=ts.length>1&&/to/i.test(rep)?tmin(ts[1]):null;
+    if(s==null&&!['leave','support','sanitary'].includes(kind))return;if(e==null&&s!=null)e=s+SHIFT_LEN;if(e!=null&&e<s)e+=1440;
+    String(who).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
+      out.push({team:tn,d,person_raw:n,employee_id:m?.id||null,kind,match_no:['normal','support','sanitary'].includes(kind)?'':String(r[4]??''),coverage:String(r[5]??''),row_no:ri,series:ser,match_time:typeof r[1]==='number'&&r[1]<1?hm(Math.round(r[1]*1440)):String(r[1]??'').slice(0,20),reporting:rep,work_from:r[9]||'',comment:r[7]||'',start_min:kind==='leave'?null:s,end_min:kind==='leave'?null:e})});
+    if(kind==='match'&&r[8])String(r[8]).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
+      out.push({team:tn,d,person_raw:n,employee_id:m?.id||null,kind:'rank',match_no:String(r[4]??''),coverage:String(r[5]??''),row_no:ri,series:ser,match_time:typeof r[1]==='number'&&r[1]<1?hm(Math.round(r[1]*1440)):String(r[1]??'').slice(0,20),reporting:rep,work_from:r[9]||'',comment:r[7]||'',start_min:null,end_min:null})})});
+  return {out,unm:[...unm]};
+}
+function wireManage(){
+  $('fl').onchange=async e=>{const wb=XLSX.read(await e.target.files[0].arrayBuffer());const ws=wb.Sheets[wb.SheetNames.find(n=>/oct/i.test(n))||wb.SheetNames[0]];
+    prev=parse(ws,$('tn').value.trim()||'Cricket');const ds=[...new Set(prev.out.map(r=>r.d))].sort();
+    $('pv2').innerHTML=`Sheet: ${esc(wb.SheetNames.join(', '))}<br>${ds.length} dates (${ds[0]||'-'} → ${ds[ds.length-1]||'-'}), ${prev.out.length} assignments.<br>${prev.unm.length?'⚠ Unmatched names: '+esc(prev.unm.join(', '))+' (add them under Add employees, then re-upload)':'All names matched.'}`;$('sv').disabled=!prev.out.length};
+  $('sv').onclick=async()=>{const ds=[...new Set(prev.out.map(r=>r.d))],tn=prev.out[0].team,nots=$('nn').checked?buildNotifs(rows.filter(r=>r.team===tn&&ds.includes(r.d)),prev.out,ds,tn):[];
+    let x=await sb.from('assignments').delete().eq('team',tn).in('d',ds);if(x.error)return err(x.error.message);
+    for(let i=0;i<prev.out.length;i+=400){x=await sb.from('assignments').insert(prev.out.slice(i,i+400));if(x.error)return err(x.error.message)}
+    if(nots.length){x=await sb.from('notifications').insert(nots);if(x.error)return err(x.error.message)}
+    prev=null;tab='day';day=ds[0];load()};
+  $('na').onclick=async()=>{if(!$('nf').value||!$('nt').value||!$('nb').value)return;await sb.from('notices').insert({date_from:$('nf').value,date_to:$('nt').value,team:$('nteam').value||null,body:$('nb').value,urgent:$('nu').checked});load()};
+  document.querySelectorAll('[data-dn]').forEach(b=>b.onclick=async()=>{await sb.from('notices').delete().eq('id',b.dataset.dn);load()});
+  $('ad').onclick=async()=>{if(!$('fn').value.trim())return;const x=await sb.from('employees').insert({name:$('fn').value.trim(),short_name:$('sn').value.trim()||null,team:$('et').value.trim()||'Cricket'});if(x.error)return err(x.error.message);const {data}=await sb.from('employees').select('*').order('name');emps=data;render()};
+  $('ae').onclick=async()=>{const r=$('ne').value.split('\n').map(l=>l.split(/\||\t/)).filter(a=>a[0].trim()).map(a=>({name:a[0].trim(),short_name:(a[1]||'').trim()||null,team:(a[2]||'Cricket').trim()}));
+    const x=await sb.from('employees').insert(r);if(x.error)return err(x.error.message);const {data}=await sb.from('employees').select('*').order('name');emps=data;render()};
+  document.querySelectorAll('[data-r]').forEach(s=>s.onchange=async()=>{if(me.role!=='admin')return err('Only an admin can change roles.');await sb.from('employees').update({role:s.value}).eq('id',s.dataset.r)});
+}
+const myN=()=>notifs.filter(x=>x.employee_id===me.id||(!x.employee_id&&(!x.team||x.team===me.team)));
+const unread=()=>myN().filter(x=>new Date(x.created_at)>new Date(localStorage.seen||0)).length;
+const wd=d=>new Date(d+'T00:00').toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'});
+function bellPanel(){const l=myN(),seen=new Date(localStorage.seen||0);
+  $('modal').innerHTML=`<div class="mod"><div class="box" style="max-height:80vh;overflow:auto"><h3>Notifications</h3>${l.map(x=>`<div class="row ${new Date(x.created_at)>seen?'me':''}"><b>${esc(x.title)}</b><div class="s">${esc(x.body)} · ${new Date(x.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div></div>`).join('')||'<div class="s">Nothing yet.</div>'}<button class="p" id="cl">Close</button></div></div>`;
+  $('cl').onclick=()=>{localStorage.seen=new Date().toISOString();$('modal').innerHTML='';render()}}
+const unreadPopup=()=>{if(unread())bellPanel();else $('modal').innerHTML=''};
+function nextBanner(all){if(tab==='mng')return'';const n=all.filter(p=>p.emp===me.id&&p.d>=TODAY()&&p.s!=null).sort((a,b)=>a.d.localeCompare(b.d))[0];
+  return n?`<div class="row me"><b>Your next shift</b><div>${wd(n.d)} · Shift ${n.shift} · ${hm(n.s)}–${hm(n.e)}</div></div>`:'<div class="row s">No upcoming shift found for you yet.</div>'}
+function pmap(list){const m={};list.forEach(r=>{if(!r.employee_id)return;const o=m[r.employee_id+'|'+r.d]=m[r.employee_id+'|'+r.d]||{s:null,e:null,leave:false,ser:[]};
+  if(r.kind==='leave'){o.leave=true;return}if(r.kind==='rank'){o.rk=1;return}if(r.start_min==null)return;o.s=o.s==null?r.start_min:Math.min(o.s,r.start_min);o.e=o.e==null?r.end_min:Math.max(o.e,r.end_min);o.ser.push(r.series)});
+  Object.values(m).forEach(o=>o.shift=o.s==null?0:o.s<420?1:o.e>1440?3:2);return m}
+const desc=o=>!o?'not rostered':o.s==null?(o.leave?'Leave':'Rankings update duty'):`Shift ${o.shift} ${hm(o.s)}–${hm(o.e)}`+(o.ser[0]?' ('+o.ser[0]+')':'')+(o.rk?' + rankings update':'');
+function buildNotifs(old,nw,ds,tn){const A=pmap(old),B=pmap(nw),oldD=new Set(old.map(r=>r.d)),out=[],ch=new Set();
+  new Set([...Object.keys(A),...Object.keys(B)]).forEach(k=>{const a=A[k],b=B[k],[e,d]=k.split('|');if(desc(a)===desc(b))return;if(oldD.has(d))ch.add(d);
+    out.push({employee_id:e,team:tn,title:(!a?(b.s==null?(b.leave?'Leave: ':'Duty: '):'New shift: '):!b?'Removed from roster: ':'Shift changed: ')+wd(d),body:!a?desc(b):!b?'You are no longer rostered on this day.':desc(a)+' → '+desc(b)})});
+  const nd=ds.filter(d=>!oldD.has(d)).sort(),cd=[...ch].sort();
+  if(nd.length)out.push({team:tn,title:'Roster published',body:`${tn}: ${nd[0]}${nd.length>1?' to '+nd[nd.length-1]:''}. See My shifts.`});
+  if(cd.length)out.push({team:tn,title:'Roster updated',body:`${tn}: changes on ${cd.join(', ')}. Affected people also get their own notification.`});
+  return out}
+setInterval(async()=>{if(!me)return;const f=await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100);
+  if(f.data&&f.data.length&&f.data[0].id!==(notifs[0]||{}).id){notifs=f.data;if(tab!=='mng'){render();if(!$('modal').innerHTML)unreadPopup()}}},60000);
+boot();
+</script></body></html>
