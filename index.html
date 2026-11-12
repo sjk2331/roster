@@ -58,8 +58,11 @@ function loginView(){
     const {error}=await sb.auth.signUp(c);if(error)return err('Could not set PIN: '+error.message+' (if you already set a PIN, use Log in)');
     const r=await sb.rpc('claim_employee',{eid:$('who').value});r.error?err(r.error.message):boot()};
 }
+async function pageRows(){let all=[],p=0;const from=iso(new Date(Date.now()-90*864e5));
+  for(;;){const x=await sb.from('assignments').select('*').gte('d',from).order('d').order('id').range(p,p+999);if(x.error||!x.data)break;all=all.concat(x.data);if(x.data.length<1000)break;p+=1000}
+  return {data:all}}
 async function load(){
-  const [a,n,t,f]=await Promise.all([sb.from('assignments').select('*').order('d'),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100)]);
+  const [a,n,t,f]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100)]);
   rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
   render();showNotices();
 }
@@ -125,7 +128,7 @@ function timesheet(o){
   $('ok').onclick=async()=>{o.ts_darwin=o.ts_zoho=true;await sb.from('attendance').update({ts_darwin:true,ts_zoho:true}).eq('employee_id',o.employee_id).eq('d',o.d);$('modal').innerHTML=''};
 }
 function showNotices(){unreadPopup()}
-function manage(){return `<div class="row"><h3>Publish roster</h3><div class="bar"><input id="tn" placeholder="Team (e.g. Cricket, Tagging)" value="Cricket"><input type="file" id="fl" accept=".xlsx,.xls"></div>
+function manage(){return `<div id="err"></div><div class="row"><h3>Publish roster</h3><div class="bar"><input id="tn" placeholder="Team (e.g. Cricket, Tagging)" value="Cricket"><input type="file" id="fl" accept=".xlsx,.xls"></div>
   <h3 style="margin-top:14px">Or paste from Google Sheets</h3><textarea id="pb" rows="5" style="width:100%" placeholder="Copy the day's rows in Google Sheets (date row down to the Leave row) and paste here"></textarea><button id="pbBtn">Preview pasted roster</button>
   <div id="pv2" class="s" style="margin:8px 0"></div><label><input type="checkbox" id="nn" checked> Notify employees</label> <button class="p" id="sv" disabled>Save to dashboard</button><div class="s">Re-uploading a date replaces that date for that team. Log in/out records are kept.</div></div>
   <div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf"><input type="date" id="nt"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
@@ -153,26 +156,26 @@ function tsv(t){const R=[];let row=[],f='',q=false;t=t.replace(/\r/g,'');for(let
   row.push(f);R.push(row);return R}
 function parse(ws,tn){return parseRows(XLSX.utils.sheet_to_json(ws,{header:1,raw:true}),tn)}
 function parseRows(rows,tn){
-  const out=[],unm=new Set();rows.forEach((r,ri)=>{
-    const d=pdate(r[0]);if(!d)return;
+  const out=[],unm=new Set(),sk=[];rows.forEach((r,ri)=>{
+    const d=pdate(r[0]);if(!d){if(String(r[0]||'').trim()&&String(r[3]||'').trim()&&!/^(date|schedule)/i.test(String(r[0]).trim()))sk.push('date not understood: "'+String(r[0]).slice(0,20)+'"');return}
     const ser=String(r[3]||'').trim(),sl=ser.toLowerCase();let kind='match',who=r[6];
     if(String(r[1]).trim().toLowerCase()==='leave'){kind='leave';who=r[2]}else if(sl==='normal'){kind='normal';who=r[4]}else if(sl==='qc'){kind='qc'}
     else if(sl==='client support'){kind='support';who=r[4]}else if(sl.startsWith('ensure')){kind='sanitary';who=r[4]}
     else if(sl==='note'){const nt=String(r[4]||'').replace(/\s+/g,' ').trim();if(nt&&nt!=='-')out.push({team:tn,d,person_raw:nt,employee_id:null,kind:'note',match_no:'',coverage:'',row_no:ri,series:'Note',match_time:'',reporting:'',work_from:'',comment:'',start_min:null,end_min:null});return}
     else if(!ser)return;
-    if(!who)return;const rep=typeof r[2]==='number'&&r[2]<1?hm(Math.round(r[2]*1440)):String(r[2]||''),ts=(rep.match(/\d{1,2}:\d{2}/g)||[]);
+    if(!who){if(['match','normal','qc'].includes(kind))sk.push((ser||'row '+(ri+1))+' (no scorers)');return}const rep=typeof r[2]==='number'&&r[2]<1?hm(Math.round(r[2]*1440)):String(r[2]||''),ts=(rep.match(/\d{1,2}:\d{2}/g)||[]);
     let s=ts.length?tmin(ts[0]):tmin(r[1]),e=ts.length>1&&/to|[-–]/i.test(rep)?tmin(ts[1]):null;
-    if(s==null&&!['leave','support','sanitary'].includes(kind))return;if(e==null&&s!=null)e=s+SHIFT_LEN;if(e!=null&&e<s)e+=1440;
+    if(s==null&&!['leave','support','sanitary'].includes(kind)){sk.push(ser+' (no match time found)');return}if(e==null&&s!=null)e=s+SHIFT_LEN;if(e!=null&&e<s)e+=1440;
     const base={team:tn,d,match_no:['normal','support','sanitary'].includes(kind)?'':String(r[4]??'').trim(),coverage:String(r[5]??'').trim(),row_no:ri,series:ser,match_time:MTX(r[1]),reporting:rep,work_from:String(r[9]||'').trim(),comment:String(r[7]||'').trim()};
     String(who).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
       out.push({...base,person_raw:n,employee_id:m?.id||null,kind,start_min:kind==='leave'?null:s,end_min:kind==='leave'?null:e})});
     if(kind==='match'&&r[8])String(r[8]).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
       out.push({...base,person_raw:n,employee_id:m?.id||null,kind:'rank',start_min:null,end_min:null})})});
-  return {out,unm:[...unm]};
+  return {out,unm:[...unm],sk};
 }
 function wireManage(){
   const pv=()=>{const ds=[...new Set(prev.out.map(r=>r.d))].sort(),nn=prev.out.filter(r=>r.kind==='note').length;
-    $('pv2').innerHTML=`${ds.length} date(s) (${ds[0]||'-'} → ${ds[ds.length-1]||'-'}), ${prev.out.length} entries, ${nn} note(s).<br>${prev.unm.length?'⚠ Unmatched names: '+esc(prev.unm.join(', '))+' (add them under Add employee, then preview again)':'All names matched.'}`;$('sv').disabled=!prev.out.length};
+    $('pv2').innerHTML=`${ds.length} date(s) (${ds[0]||'-'} → ${ds[ds.length-1]||'-'}): ${new Set(prev.out.filter(r=>r.kind==='match').map(r=>r.d+'|'+r.row_no)).size} matches, ${prev.out.length} entries, ${nn} note(s).<br>${prev.sk&&prev.sk.length?'⚠ Skipped '+prev.sk.length+' row(s): '+esc(prev.sk.join('; '))+'<br>':''}${prev.unm.length?'⚠ Unmatched names: '+esc(prev.unm.join(', '))+' (add them under Add employee, then preview again)':'All names matched.'}`;$('sv').disabled=!prev.out.length};
   $('fl').onchange=async e=>{const wb=XLSX.read(await e.target.files[0].arrayBuffer()),mn=new Date().toLocaleString('en',{month:'short'}).toLowerCase();prev=parse(wb.Sheets[wb.SheetNames.find(n=>n.toLowerCase().includes(mn))||wb.SheetNames[0]],$('tn').value.trim()||'Cricket');pv()};
   $('pbBtn').onclick=()=>{prev=parseRows(tsv($('pb').value),$('tn').value.trim()||'Cricket');pv()};
   $('sv').onclick=async()=>{const ds=[...new Set(prev.out.map(r=>r.d))].sort(),tn=prev.out[0].team,out=prev.out,nots=$('nn').checked?buildNotifs(rows.filter(r=>r.team===tn&&ds.includes(r.d)),out,ds,tn):[];
@@ -244,7 +247,7 @@ async function attLoad(){
 }
 function waBox(tn,ds,out,ne){
   const nt=out.filter(r=>r.kind==='note').map(r=>'📌 '+wd(r.d)+': '+r.person_raw),msg=`📅 ${tn} roster published\n${ds.map(wd).join(', ')}\nOpen the dashboard to see your shifts: ${location.href.split('#')[0]}${nt.length?'\n'+nt.join('\n'):''}`;
-  $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Roster saved</h3>${ne?'<div class="s" style="color:var(--r)">Notifications were not sent: '+esc(ne)+'</div>':''}<p class="s">Message for your WhatsApp group:</p><textarea id="wam" rows="7" style="width:100%" readonly>${esc(msg)}</textarea><div class="bar"><button class="p" id="wac">Copy message</button><button id="wax">Close</button></div></div></div>`;
+  $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Roster saved</h3><div class="s">${out.length} entries for ${ds.length} date(s)</div>${ne?'<div class="s" style="color:var(--r)">Notifications were not sent: '+esc(ne)+'</div>':''}<p class="s">Message for your WhatsApp group:</p><textarea id="wam" rows="7" style="width:100%" readonly>${esc(msg)}</textarea><div class="bar"><button class="p" id="wac">Copy message</button><button id="wax">Close</button></div></div></div>`;
   $('wac').onclick=async()=>{try{await navigator.clipboard.writeText(msg);$('wac').textContent='Copied ✓'}catch(e){$('wam').select()}};$('wax').onclick=()=>{$('modal').innerHTML=''}}
 function changePin(){
   const pi=(id,ph)=>`<input id="${id}" type="password" inputmode="numeric" maxlength="6" placeholder="${ph}">`;
