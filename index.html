@@ -65,6 +65,7 @@ async function load(){
   const [a,n,t,f]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100)]);
   rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
   render();showNotices();
+  if(!localStorage['cl'+TODAY()]){localStorage['cl'+TODAY()]=1;try{sb.rpc('cleanup_notifications').then(()=>{},()=>{})}catch(e){}}
 }
 function days(){ // group assignments into person-days
   const m={};rows.forEach(r=>{const k=r.d+'|'+(r.employee_id||r.person_raw)+'|'+r.team;(m[k]=m[k]||{d:r.d,emp:r.employee_id,name:r.person_raw,team:r.team,items:[]}).items.push(r)});
@@ -76,7 +77,7 @@ function render(){
   rows.filter(r=>(tab==='my'?r.d>=TODAY():r.d===day)&&(!team||r.team===team)).forEach(r=>{
     const E=r.employee_id?emps.find(e=>e.id===r.employee_id):null,n=E?E.name:/^next morning/i.test(r.person_raw)?r.person_raw:r.person_raw+' (unmatched)',sn=E?(E.short_name||E.name).split(',')[0].trim():r.person_raw+'?';
     if(r.kind==='note'){NT.add(r.person_raw);return}
-    if(r.kind==='leave'){L.add(n);return}
+    if(r.kind==='leave'){if(tab==='my'){if(r.employee_id===me.id){const k='L|'+r.d;M[k]=M[k]||{d:r.d,team:r.team,series:'On leave',mn:'',cov:'',t:'',rep:'',wf:'',cm:'',kind:'leave',sc:[{id:me.id,n,sn}],rk:[],s:null,e:null}}}else L.add(n);return}
     const k=r.d+'|'+r.team+'|'+r.row_no+'|'+r.series,q=M[k]=M[k]||{d:r.d,team:r.team,series:r.series,mn:r.match_no,cov:r.coverage,t:r.match_time,rep:r.reporting,wf:r.work_from,cm:r.comment,kind:'rank',sc:[],rk:[],s:null,e:null};
     if(r.kind==='rank'){if(!q.rk.some(x=>x.n===n))q.rk.push({id:r.employee_id,n,sn})}
     else{q.kind=r.kind;if(!q.sc.some(x=>x.n===n))q.sc.push({id:r.employee_id,n,sn});if(r.start_min!=null){q.s=q.s==null?r.start_min:Math.min(q.s,r.start_min);q.e=Math.max(q.e||0,r.end_min||0)}}});
@@ -85,7 +86,7 @@ function render(){
   const chips=a=>a.map(x=>`<span class="chip ${x.id===me.id?'me':''}">${esc(x.n)}</span>`).join('');
   const nowM=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()},dur=m=>m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
   const icon=q=>({support:'🎧',sanitary:'🧼',qc:'✅',normal:'🕘'})[q.kind]||(/moto/i.test(q.series)?'🏍️':/f1|formula|grand prix/i.test(q.series)?'🏎️':/boxing/i.test(q.series)?'🥊':/chess/i.test(q.series)?'♟️':/darts/i.test(q.series)?'🎯':/cycl/i.test(q.series)?'🚴':/horse/i.test(q.series)?'🏇':/volley/i.test(q.series)?'🏐':'🏏');
-  const card=q=>{const mi=q.sc.concat(q.rk).some(x=>x.id===me.id),lab={support:'Assigned',sanitary:'Assigned',normal:'Normal shift',qc:'QC'}[q.kind]||'Scoring';
+  const card=q=>{if(q.kind==='leave')return `<div class="row mc"><div class="tm">🌴</div><div class="bdy"><div class="s">${wd(q.d)}</div><div class="ttl">On leave</div><div class="s">${esc(q.team)}</div></div></div>`;const mi=q.sc.concat(q.rk).some(x=>x.id===me.id),lab={support:'Assigned',sanitary:'Assigned',normal:'Normal shift',qc:'QC'}[q.kind]||'Scoring';
     const st=q.d===TODAY()&&q.kind==='match'&&q.s!=null?(nowM()<q.s?'Starts in '+dur(q.s-nowM()):nowM()<=q.e?'Started':''):'';
     return `<div class="row mc ${mi?'me':''}"><div class="tm">${esc(mt(q.t||'')||'—')}<div class="ic">${icon(q)}</div></div><div class="bdy">${tab==='my'?'<div class="s">'+wd(q.d)+'</div>':''}
     <div class="ttl">${esc(q.series)}${q.mn?' <span class="s">· Match '+esc(q.mn)+'</span>':''}${q.kind!=='match'?' <span class="bd">'+esc(q.kind.toUpperCase())+'</span>':''}</div>
@@ -131,7 +132,7 @@ function showNotices(){unreadPopup()}
 function manage(){return `<div id="err"></div><div class="row"><h3>Publish roster</h3><div class="bar"><input id="tn" placeholder="Team (e.g. Cricket, Tagging)" value="Cricket"><input type="file" id="fl" accept=".xlsx,.xls"></div>
   <h3 style="margin-top:14px">Or paste from Google Sheets</h3><textarea id="pb" rows="5" style="width:100%" placeholder="Copy the day's rows in Google Sheets (date row down to the Leave row) and paste here"></textarea><button id="pbBtn">Preview pasted roster</button>
   <div id="pv2" class="s" style="margin:8px 0"></div><label><input type="checkbox" id="nn" checked> Notify employees</label> <button class="p" id="sv" disabled>Save to dashboard</button><div class="s">Re-uploading a date replaces that date for that team. Log in/out records are kept.</div></div>
-  <div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf"><input type="date" id="nt"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
+  ${me.role==='admin'?sendBox():''}<div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf"><input type="date" id="nt"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
   <textarea id="nb" rows="2" style="width:100%" placeholder="Message"></textarea><button class="p" id="na">Add</button>
   ${notices.map(n=>`<div class="s">${n.date_from}→${n.date_to} ${esc(n.body)} <button data-dn="${n.id}">✕</button></div>`).join('')}</div>
   <div class="row"><h3>Add employee</h3><div class="bar"><input id="fn" placeholder="Full name"><input id="sn" placeholder="Short name on daily roster"><input id="et" placeholder="Team" value="Cricket"><button class="p" id="ad">Add</button></div>
@@ -177,7 +178,31 @@ function parseRows(rows,tn){
       out.push({...base,person_raw:n,employee_id:m?.id||null,kind:'rank',start_min:null,end_min:null})})});
   return {out,unm:[...unm],sk};
 }
+function sendBox(){const teams=[...new Set(emps.map(e=>e.team))];
+  return `<div class="row"><h3>Send notification</h3><div class="s">Tick people, or choose a team, or leave both empty to send to everyone.</div>
+  <div class="bar"><select id="st"><option value="">Everyone</option>${teams.map(t=>`<option>${esc(t)}</option>`).join('')}</select><input id="sq" placeholder="Find a person"></div>
+  <div style="max-height:130px;overflow:auto;border:1px solid var(--b);border-radius:10px;padding:6px">${emps.map(e=>`<label style="display:block"><input type="checkbox" class="spc" value="${e.id}" data-n="${esc(e.name.toLowerCase())}"> ${esc(e.name)}</label>`).join('')}</div>
+  <div class="bar"><input id="sti" placeholder="Title" style="flex:1"></div><textarea id="sb" rows="2" style="width:100%" placeholder="Message"></textarea>
+  <div class="bar"><label class="s">Open this day <input type="date" id="sd"></label><label><input type="checkbox" id="su"> Priority</label></div>
+  <div class="bar"><select id="sr"><option value="once">Send once</option><option value="rep">Repeat daily until…</option></select><input type="date" id="sut" style="display:none"></div>
+  <button class="p" id="sgo">Send</button><div id="nh" class="s" style="margin-top:10px">Loading history…</div></div>`}
+async function histLoad(){const box=$('nh');if(!box)return;
+  const x=await sb.from('notifications').select('*').eq('kind','manual').gte('created_at',new Date(Date.now()-7*864e5).toISOString()).order('created_at',{ascending:false}).limit(500);
+  if(x.error){box.textContent=x.error.message;return}const B={};
+  (x.data||[]).forEach(r=>{const k=r.created_at+'|'+r.title+'|'+r.body,b=B[k]=B[k]||{r,ids:[],to:[]};b.ids.push(r.id);b.to.push(r.employee_id?(emps.find(e=>e.id===r.employee_id)||{name:'?'}).name:r.team||'Everyone')});
+  box.innerHTML='<b>Sent in the last 7 days</b>'+(Object.values(B).map(b=>`<div class="row"><b>${esc(b.r.title)}</b>${b.r.urgent?' <span class="bd lv">Priority</span>':''}<div>${esc(b.r.body)}</div><div class="s">To: ${esc(b.to.slice(0,6).join(', '))}${b.to.length>6?' +'+(b.to.length-6)+' more':''} · ${b.r.until?'repeats until '+b.r.until:'once'} · ${new Date(b.r.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div><button data-dh="${b.ids.join(',')}">Delete</button></div>`).join('')||'<div class="s">Nothing sent yet.</div>');
+  box.querySelectorAll('[data-dh]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this message for everyone it was sent to?'))return;await sb.from('notifications').delete().in('id',b.dataset.dh.split(',').map(Number));histLoad()})}
 function wireManage(){
+  if($('sgo')){
+    $('sq').oninput=e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.spc').forEach(c=>c.parentElement.style.display=c.dataset.n.includes(q)?'block':'none')};
+    $('sr').onchange=e=>{$('sut').style.display=e.target.value==='rep'?'':'none'};
+    $('sgo').onclick=async()=>{const ti=$('sti').value.trim(),bo=$('sb').value.trim(),ppl=[...document.querySelectorAll('.spc:checked')].map(c=>c.value),rp=$('sr').value==='rep',ut=$('sut').value;
+      if(!bo&&!ti)return err('Write a message first.');if(rp&&!ut)return err('Pick the date to repeat until.');
+      const base={title:ti||'Message from Admin',body:bo||ti,d:$('sd').value||null,kind:'manual',urgent:$('su').checked,until:rp?ut:null};
+      const N=ppl.length?ppl.map(id=>({...base,employee_id:id,team:null})):[{...base,employee_id:null,team:$('st').value||null}];
+      const x=await sb.from('notifications').insert(N);if(x.error)return err(x.error.message);err('');
+      ['sti','sb','sd'].forEach(i=>$(i).value='');document.querySelectorAll('.spc').forEach(c=>c.checked=false);$('sgo').textContent='Sent ✓';setTimeout(()=>{if($('sgo'))$('sgo').textContent='Send'},1800);histLoad()};
+    histLoad()}
   const pv=()=>{const ds=[...new Set(prev.out.map(r=>r.d))].sort(),nn=prev.out.filter(r=>r.kind==='note').length;
     $('pv2').innerHTML=`${ds.length} date(s) (${ds[0]||'-'} → ${ds[ds.length-1]||'-'}): ${new Set(prev.out.filter(r=>r.kind==='match').map(r=>r.d+'|'+r.row_no)).size} matches, ${prev.out.length} entries, ${nn} note(s).<br>${prev.sk&&prev.sk.length?'⚠ Skipped '+prev.sk.length+' row(s): '+esc(prev.sk.join('; '))+'<br>':''}${prev.unm.length?'⚠ Unmatched names: '+esc(prev.unm.join(', '))+' (add them under Add employee, then preview again)':'All names matched.'}`;$('sv').disabled=!prev.out.length};
   $('fl').onchange=async e=>{const wb=XLSX.read(await e.target.files[0].arrayBuffer()),mn=new Date().toLocaleString('en',{month:'short'}).toLowerCase();prev=parse(wb.Sheets[wb.SheetNames.find(n=>n.toLowerCase().includes(mn))||wb.SheetNames[0]],$('tn').value.trim()||'Cricket');pv()};
@@ -195,15 +220,18 @@ function wireManage(){
   document.querySelectorAll('[data-rp]').forEach(b=>b.onclick=async()=>{if(!confirm('Reset this person’s PIN? They will set a new one the next time they open the app.'))return;const x=await sb.rpc('reset_pin',{eid:b.dataset.rp});if(x.error)return err(x.error.message);const {data}=await sb.from('employees').select('*').order('name');emps=data;render()});
   document.querySelectorAll('[data-r]').forEach(s=>s.onchange=async()=>{if(me.role!=='admin')return err('Only an admin can change roles.');await sb.from('employees').update({role:s.value}).eq('id',s.dataset.r)});
 }
-const myN=()=>notifs.filter(x=>x.employee_id===me.id||(!x.employee_id&&(!x.team||x.team===me.team)));
-const act=()=>{const t=TODAY();return notices.filter(n=>n.date_from<=t&&t<=n.date_to&&(!n.team||n.team===me.team)).sort((a,b)=>b.urgent-a.urgent)};
+const addD=(d,n)=>{const t=new Date(d+'T00:00');t.setDate(t.getDate()+n);return iso(t)};
+const live=x=>x.until?TODAY()<=x.until:x.d?TODAY()<=addD(x.d,2):Date.now()-new Date(x.created_at)<2*864e5;
+const myAll=()=>notifs.filter(x=>(x.employee_id===me.id||(!x.employee_id&&(!x.team||x.team===me.team)))&&live(x));
+const myN=()=>myAll().filter(x=>!x.until);
+const act=()=>{const t=TODAY();return notices.filter(n=>n.date_from<=t&&t<=n.date_to&&(!n.team||n.team===me.team)).concat(myAll().filter(x=>x.until).map(x=>({body:(x.title?x.title+': ':'')+x.body,urgent:x.urgent,date_to:x.until}))).sort((a,b)=>(b.urgent?1:0)-(a.urgent?1:0))};
 const shownKey=()=>'shown'+me.id+TODAY();
 const unread=()=>myN().filter(x=>new Date(x.created_at)>new Date(localStorage['seen'+me.id]||0)).length+(localStorage[shownKey()]?0:act().length);
 const wd=d=>new Date(d+'T00:00').toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'});
 function bellPanel(){const l=myN(),seen=new Date(localStorage['seen'+me.id]||0),R=act();
   $('modal').innerHTML=`<div class="mod"><div class="box" style="max-height:80vh;overflow:auto"><div style="display:flex;justify-content:space-between;align-items:center;position:sticky;top:-18px;background:var(--c);padding:6px 0"><h3 style="margin:0">Notifications</h3><button id="cl0">✕</button></div>
   ${R.map(n=>`<div class="row ${n.urgent?'urg':''}"><b>${n.urgent?'⚠ Priority reminder':'Reminder'}</b><div>${esc(n.body)}</div><div class="s">Until ${n.date_to}</div></div>`).join('')}
-  ${l.map(x=>`<div class="row ${new Date(x.created_at)>seen?'me':''}"><b>${esc(x.title)}</b><div class="s">${esc(x.body)} · ${new Date(x.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>${x.d?'<button data-vd="'+x.d+'">View '+wd(x.d)+'</button>':''}</div>`).join('')}
+  ${l.map(x=>`<div class="row ${x.urgent?'urg ':''}${new Date(x.created_at)>seen?'me':''}"><b>${esc(x.title)}</b><div class="s">${esc(x.body)} · ${new Date(x.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>${x.d?'<button data-vd="'+x.d+'">View '+wd(x.d)+'</button>':''}</div>`).join('')}
   ${R.length||l.length?'':'<div class="s">Nothing yet.</div>'}<button class="p" id="cl">Close</button></div></div>`;
   const cls=()=>{localStorage['seen'+me.id]=myN().reduce((a,x)=>x.created_at>a?x.created_at:a,'')||new Date().toISOString();localStorage[shownKey()]=1;$('modal').innerHTML='';render()};
   $('cl').onclick=cls;$('cl0').onclick=cls;document.querySelectorAll('[data-vd]').forEach(b=>b.onclick=()=>{day=b.dataset.vd;tab='day';cls()})}
