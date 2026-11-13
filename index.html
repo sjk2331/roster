@@ -2,6 +2,14 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Team Roster</title>
+<meta name="theme-color" content="#5F52FF">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Team Roster">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
 <style>
 :root{--bg:#f4f5fb;--c:#fff;--t:#1a1b2e;--m:#6b7080;--b:#e4e6f0;--a:#5f52ff;--ab:#5f52ff;--ad:#2a2380;--at:#eeedff;--g:#15803d;--gb:#dcfce7;--w:#b45309;--wb:#fef3c7;--r:#dc2626;--rb:#fee2e2;color-scheme:light dark}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1016;--c:#181a24;--t:#ecedf5;--m:#9a9db0;--b:#2a2d3d;--a:#9a90ff;--ab:#6a5cff;--ad:#1b1740;--at:#241f4d;--g:#4ade80;--gb:#14351f;--w:#fbbf24;--wb:#3a2d0c;--r:#f87171;--rb:#3b1515}}
@@ -38,7 +46,7 @@ const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()), TODAY
 const rt=v=>/^0\.\d+$/.test(v)?hm(Math.round(v*1440)):v;
 const mt=v=>/^0\.\d+$/.test(v)?hm(Math.round(v*1440)):v;
 const hm=m=>m==null?'':pad(Math.floor(m/60)%24)+':'+pad(m%60);
-let me=null,emps=[],rows=[],att={},notices=[],notifs=[],day=TODAY(),team='',mine=localStorage.mine==='1',view=localStorage.view||(innerWidth<700?'cards':'table'),tab='day',prev=null;
+let chan=null,qt=null,me=null,emps=[],rows=[],att={},notices=[],notifs=[],day=TODAY(),team='',mine=localStorage.mine==='1',view=localStorage.view||(innerWidth<700?'cards':'table'),tab='day',prev=null;
 const staff=()=>me&&['admin','lead'].includes(me.role);
 const err=t=>{const e=$('err');if(e)e.textContent=t||''};
 
@@ -65,6 +73,7 @@ async function load(){
   const [a,n,t,f]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100)]);
   rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
   render();showNotices();
+  if(!chan){try{chan=sb.channel('notif-live').on('postgres_changes',{event:'*',schema:'public',table:'notifications'},()=>{clearTimeout(qt);qt=setTimeout(()=>quickSync(),400)}).subscribe()}catch(e){}}
   if(!localStorage['cl'+TODAY()]){localStorage['cl'+TODAY()]=1;try{sb.rpc('cleanup_notifications').then(()=>{},()=>{})}catch(e){}}
 }
 function days(){ // group assignments into person-days
@@ -104,13 +113,13 @@ function render(){
   <div class="tabs"><button id="t1" class="${tab==='day'?'p':''}">Day roster</button><button id="t2" class="${tab==='my'?'p':''}">My shifts</button>${staff()?`<button id="t3" class="${tab==='mng'?'p':''}">Manage</button>`:''}${me.role==='admin'?`<button id="t4" class="${tab==='att'?'p':''}">Attendance</button>`:''}</div>
   ${tab==='att'?'<div id="attbox" class="s">Loading…</div>':tab==='mng'?manage():`${strip}<div class="bar">${tab==='day'?`<input type="date" id="dp" value="${day}"><button id="td">Today</button><label><input type="checkbox" id="mn" ${mine?'checked':''}> Only my matches</label> <button id="vw">${view==='table'?'Cards view':'Table view'}</button>`:''}<select id="tm"><option value="">All teams</option>${teams.map(t=>`<option ${t===team?'selected':''}>${esc(t)}</option>`).join('')}</select>
   ${tab==='day'?`<span class="s">${ms.length} matches${me.role==='admin'?' · '+on+' working now':''}</span>`:''}</div><div id="err"></div>${tab==='my'?'':''}${tab==='day'&&NT.size?'<div class="row urg"><b>📌 Note for the day</b>'+[...NT].map(x=>'<div>'+esc(x)+'</div>').join('')+'</div>':''}${dayCard}${tab==='day'?'':nextBanner(all)}${tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row"><b>On leave</b><div class="ppl">'+[...L].map(x=>'<span class="chip">'+esc(x)+'</span>').join('')+'</div></div>':''}`}`;
-  const g=id=>$(id);g('bell').onclick=()=>bellPanel();g('cp').onclick=changePin;g('out').onclick=async()=>{await sb.auth.signOut();me=null;boot()};
+  const g=id=>$(id);g('bell').onclick=()=>bellPanel();g('cp').onclick=changePin;g('out').onclick=async()=>{if(chan){try{sb.removeChannel(chan)}catch(e){}chan=null}await sb.auth.signOut();me=null;boot()};
   g('t1').onclick=()=>{tab='day';render()};g('t2').onclick=()=>{tab='my';render()};if(g('t3'))g('t3').onclick=()=>{tab='mng';render()};if(g('t4'))g('t4').onclick=()=>{tab='att';render()};
   if(g('tm'))g('tm').onchange=e=>{team=e.target.value;render()};if(g('vw'))g('vw').onclick=()=>{view=view==='table'?'cards':'table';localStorage.view=view;render()};
   if(g('dp')){g('dp').onchange=e=>{if(e.target.value){day=e.target.value;render()}};g('mn').onchange=e=>{mine=e.target.checked;localStorage.mine=mine?'1':'0';render()};g('td').onclick=()=>{day=TODAY();render()}}
   document.querySelectorAll('[data-ds]').forEach(b=>b.onclick=()=>{day=b.dataset.ds;render()});
   document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>punch(b.dataset.a,b.dataset.d));
-  $('app').style.maxWidth=(tab==='day'&&view==='table')||tab==='att'?'1250px':'780px';tickClk();
+  $('app').style.maxWidth=(tab==='day'&&view==='table')||tab==='att'?'1250px':'780px';tickClk();updTitle();
   if(tab==='mng')wireManage();if(tab==='att')attLoad();
 }
 const tickClk=()=>{const c=$('clk');if(c)c.textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};setInterval(tickClk,1000);
@@ -288,7 +297,15 @@ function changePin(){
   $('pok').onclick=async()=>{const b=$('p1').value;if(!/^\d{6}$/.test(b))return e('New PIN must be 6 digits.');if(b!==$('p2').value)return e('The two new PINs do not match.');
     let x=await sb.auth.signInWithPassword({email:me.id+'@gmail.com',password:$('p0').value});if(x.error)return e('Current PIN is wrong.');
     x=await sb.auth.updateUser({password:b});if(x.error)return e(x.error.message);$('modal').innerHTML='<div class="mod"><div class="box"><h3>PIN changed</h3><button class="p" id="px">OK</button></div></div>';$('px').onclick=()=>$('modal').innerHTML=''}}
-setInterval(async()=>{if(!me)return;const f=await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100);
-  if(f.data&&f.data.length&&f.data[0].id!==(notifs[0]||{}).id){notifs=f.data;if(tab!=='mng'){render();if(!$('modal').innerHTML)unreadPopup()}}},60000);
+const updTitle=()=>{try{const n=me?unread():0;document.title=(n?'('+n+') ':'')+'Team Roster'}catch(e){}};
+async function quickSync(force){if(!me)return;
+  const f=await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100);if(!f.data)return;
+  const changed=f.data.length!==notifs.length||(f.data[0]&&f.data[0].id)!==(notifs[0]||{}).id;
+  if(changed||force){notifs=f.data;const [a,n]=await Promise.all([pageRows(),sb.from('notices').select('*')]);rows=a.data||rows;notices=n.data||notices;
+    if(tab!=='mng'){render();if(changed&&!$('modal').innerHTML)unreadPopup()}else updTitle()}}
+setInterval(()=>{if(!document.hidden)quickSync()},20000);
+const wake=()=>{if(me&&!document.hidden)quickSync(true)};
+document.addEventListener('visibilitychange',wake);window.addEventListener('focus',wake);window.addEventListener('online',wake);window.addEventListener('pageshow',wake);
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 boot();
 </script></body></html>
