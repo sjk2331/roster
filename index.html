@@ -74,7 +74,7 @@ function days(){ // group assignments into person-days
 function render(){
   const teams=[...new Set(rows.map(r=>r.team))],all=days(),my=tab==='my'||mine,M={},L=new Set(),NT=new Set();
   rows.filter(r=>(tab==='my'?r.d>=TODAY():r.d===day)&&(!team||r.team===team)).forEach(r=>{
-    const E=r.employee_id?emps.find(e=>e.id===r.employee_id):null,n=E?E.name:r.person_raw+' (unmatched)',sn=E?(E.short_name||E.name).split(',')[0].trim():r.person_raw+'?';
+    const E=r.employee_id?emps.find(e=>e.id===r.employee_id):null,n=E?E.name:/^next morning/i.test(r.person_raw)?r.person_raw:r.person_raw+' (unmatched)',sn=E?(E.short_name||E.name).split(',')[0].trim():r.person_raw+'?';
     if(r.kind==='note'){NT.add(r.person_raw);return}
     if(r.kind==='leave'){L.add(n);return}
     const k=r.d+'|'+r.team+'|'+r.row_no+'|'+r.series,q=M[k]=M[k]||{d:r.d,team:r.team,series:r.series,mn:r.match_no,cov:r.coverage,t:r.match_time,rep:r.reporting,wf:r.work_from,cm:r.comment,kind:'rank',sc:[],rk:[],s:null,e:null};
@@ -154,9 +154,11 @@ function tsv(t){const R=[];let row=[],f='',q=false;t=t.replace(/\r/g,'');for(let
   if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
   else if(c==='"'&&f==='')q=true;else if(c==='\t'){row.push(f);f=''}else if(c==='\n'){row.push(f);R.push(row);row=[];f=''}else f+=c}
   row.push(f);R.push(row);return R}
+function fixRows(R){const o=[];R.forEach(r=>{const p=o[o.length-1];
+  if(p&&pdate(p[0])&&!pdate(r[0])&&r.some(x=>String(x??'').trim())&&!/^(date|schedule)/i.test(String(r[0]??'').trim())){p[p.length-1]=String(p[p.length-1]??'')+'\n'+String(r[0]??'');p.push(...r.slice(1))}else o.push(Array.from(r))});return o}
 function parse(ws,tn){return parseRows(XLSX.utils.sheet_to_json(ws,{header:1,raw:true}),tn)}
 function parseRows(rows,tn){
-  const out=[],unm=new Set(),sk=[];rows.forEach((r,ri)=>{
+  const out=[],unm=new Set(),sk=[];fixRows(rows).forEach((r,ri)=>{
     const d=pdate(r[0]);if(!d){if(String(r[0]||'').trim()&&String(r[3]||'').trim()&&!/^(date|schedule)/i.test(String(r[0]).trim()))sk.push('date not understood: "'+String(r[0]).slice(0,20)+'"');return}
     const ser=String(r[3]||'').trim(),sl=ser.toLowerCase();let kind='match',who=r[6];
     if(String(r[1]).trim().toLowerCase()==='leave'){kind='leave';who=r[2]}else if(sl==='normal'){kind='normal';who=r[4]}else if(sl==='qc'){kind='qc'}
@@ -167,8 +169,10 @@ function parseRows(rows,tn){
     let s=ts.length?tmin(ts[0]):tmin(r[1]),e=ts.length>1&&/to|[-–]/i.test(rep)?tmin(ts[1]):null;
     if(s==null&&!['leave','support','sanitary'].includes(kind)){sk.push(ser+' (no match time found)');return}if(e==null&&s!=null)e=s+SHIFT_LEN;if(e!=null&&e<s)e+=1440;
     const base={team:tn,d,match_no:['normal','support','sanitary'].includes(kind)?'':String(r[4]??'').trim(),coverage:String(r[5]??'').trim(),row_no:ri,series:ser,match_time:MTX(r[1]),reporting:rep,work_from:String(r[9]||'').trim(),comment:String(r[7]||'').trim()};
-    String(who).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
+    const names=String(who).split(/[,/&;\n]| and /i).map(clean).filter(Boolean);
+    names.forEach(n=>{const m=match(n);if(!m)unm.add(n);
       out.push({...base,person_raw:n,employee_id:m?.id||null,kind,start_min:kind==='leave'?null:s,end_min:kind==='leave'?null:e})});
+    if(!names.length&&kind==='match'&&/[a-z]{4}/i.test(String(who)))out.push({...base,person_raw:String(who).trim().slice(0,40),employee_id:null,kind,start_min:s,end_min:e});
     if(kind==='match'&&r[8])String(r[8]).split(/[,/&;\n]| and /i).map(clean).filter(Boolean).forEach(n=>{const m=match(n);if(!m)unm.add(n);
       out.push({...base,person_raw:n,employee_id:m?.id||null,kind:'rank',start_min:null,end_min:null})})});
   return {out,unm:[...unm],sk};
