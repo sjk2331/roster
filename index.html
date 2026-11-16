@@ -33,6 +33,7 @@ button{cursor:pointer}button.p{background:var(--ab);border-color:var(--ab);color
 .tb{border-collapse:collapse;width:100%;min-width:900px;table-layout:fixed;font-size:13px}.tb td,.tb th{word-wrap:break-word}.tb th{background:#facc15;color:#000;padding:6px;border:1px solid var(--b);text-align:left;white-space:nowrap}.tb td{padding:6px;border:1px solid var(--b);vertical-align:top}.tb tr.mr td{background:var(--at)}.tb td.wh{background:#c026d3;color:#fff}.tb td.wo{background:#84b36b;color:#000}
 .dt{display:block;width:6px;height:6px;border-radius:50%;background:var(--g);margin-top:2px}.dchip.sel .dt{background:#fff}
 .yd button.ghost{background:transparent;color:#fff;border:1px solid #ffffff99}
+.rtag{background:#fff;color:var(--ad);border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px}.pill.r{background:#facc15;color:#000}.tb tr td.rp{background:#fde68a;color:#000;font-weight:600}
 </style></head><body><main id="app"></main><div id="modal"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -77,10 +78,17 @@ async function load(){
   if(!chan){try{chan=sb.channel('notif-live').on('postgres_changes',{event:'*',schema:'public',table:'notifications'},()=>{clearTimeout(qt);qt=setTimeout(()=>quickSync(),400)}).subscribe()}catch(e){}}
   if(!localStorage['cl'+TODAY()]){localStorage['cl'+TODAY()]=1;try{sb.rpc('cleanup_notifications').then(()=>{},()=>{})}catch(e){}}
 }
+const repT=r=>{const t=/^0\.\d+$/.test(r.reporting)?hm(Math.round(r.reporting*1440)):String(r.reporting||''),m=t.match(/\d{1,2}:\d{2}/g)||[];if(!m.length)return null;const s=tmin(m[0]);let e=m.length>1&&/to|[-–]/i.test(t)?tmin(m[1]):null;if(e==null)e=s+SHIFT_LEN;if(e<s)e+=1440;return {s,e}};
+function shiftOf(items){ // shift start = earliest reporting time; else earliest Level 3+ (or Normal/QC) match start; Level 1-2 without a reporting time are ignored
+  const w=items.filter(i=>['match','normal','qc'].includes(i.kind)&&i.start_min!=null),wr=w.map(i=>repT(i)).filter(Boolean);
+  if(wr.length){const p=wr.reduce((a,b)=>b.s<a.s?b:a);return {s:p.s,e:p.e,rep:true}}
+  const f=w.filter(i=>{const lv=parseInt(i.coverage);return i.kind!=='match'||isNaN(lv)||lv>=3});
+  if(f.length){const x=f.reduce((a,b)=>b.start_min<a.start_min?b:a);return {s:x.start_min,e:x.end_min,rep:false}}
+  return null}
 function days(){ // group assignments into person-days
   const m={};rows.forEach(r=>{const k=r.d+'|'+(r.employee_id||r.person_raw)+'|'+r.team;(m[k]=m[k]||{d:r.d,emp:r.employee_id,name:r.person_raw,team:r.team,items:[]}).items.push(r)});
-  return Object.values(m).map(p=>{const w=p.items.filter(i=>i.kind!=='leave'&&i.start_min!=null);p.leave=p.items.some(i=>i.kind==='leave');
-    if(w.length){const f=w.reduce((a,b)=>b.start_min<a.start_min?b:a);p.s=f.start_min;p.e=f.end_min;p.shift=p.s<420?1:p.e>1440?3:2}return p});
+  return Object.values(m).map(p=>{p.leave=p.items.some(i=>i.kind==='leave');p.work=p.items.some(i=>['match','normal','qc'].includes(i.kind));
+    const sh=shiftOf(p.items);if(sh){p.s=sh.s;p.e=sh.e;p.rep=sh.rep;p.shift=p.s<420?1:p.e>1440?3:2}return p});
 }
 function render(){
   const teams=[...new Set(rows.map(r=>r.team))],all=days(),my=tab==='my'||mine,M={},L=new Set(),LME=new Set(),NT=new Set();
@@ -100,7 +108,7 @@ function render(){
     const st=q.d===TODAY()&&q.kind==='match'&&q.s!=null?(nowM()<q.s?'Starts in '+dur(q.s-nowM()):nowM()<=q.e?'Started':''):'';
     return `<div class="row mc ${mi?'me':''}"><div class="tm">${esc(mt(q.t||'')||'—')}<div class="ic">${icon(q)}</div></div><div class="bdy">${tab==='my'?'<div class="s">'+wd(q.d)+'</div>':''}
     <div class="ttl">${esc(q.series)}${q.mn?' <span class="s">· Match '+esc(q.mn)+'</span>':''}${q.kind!=='match'?' <span class="bd">'+esc(q.kind.toUpperCase())+'</span>':''}</div>
-    <div class="meta">${q.cov?'<span class="pill l">Level '+esc(q.cov)+'</span>':''}${q.wf?'<span class="pill '+(/home/i.test(q.wf)?'h':/office/i.test(q.wf)?'o':'')+'">'+esc(q.wf)+'</span>':''}${q.rep&&q.rep!=='-'?'<span class="s">Report '+esc(rt(q.rep))+'</span>':''}${st?'<span class="pill s2">'+st+'</span>':''}${teams.length>1?'<span class="s">'+esc(q.team)+'</span>':''}</div>
+    <div class="meta">${q.cov?'<span class="pill l">Level '+esc(q.cov)+'</span>':''}${q.wf?'<span class="pill '+(/home/i.test(q.wf)?'h':/office/i.test(q.wf)?'o':'')+'">'+esc(q.wf)+'</span>':''}${q.rep&&q.rep!=='-'?'<span class="pill r">Reporting '+esc(rt(q.rep))+'</span>':''}${st?'<span class="pill s2">'+st+'</span>':''}${teams.length>1?'<span class="s">'+esc(q.team)+'</span>':''}</div>
     <div class="ppl"><span class="s">${lab}</span>${chips(q.sc)||'—'}</div>${q.rk.length?'<div class="ppl"><span class="s">Rankings update</span>'+chips(q.rk)+'</div>':''}${q.cm?'<div class="s">'+esc(q.cm)+'</div>':''}</div></div>`};
   const mp=tab==='day'?all.find(p=>p.emp===me.id&&p.d===day&&(!team||p.team===team)):null;
   const du=mp?[...new Set(mp.items.filter(i=>['rank','support','sanitary'].includes(i.kind)).map(i=>({rank:'Rankings update',support:'Client support',sanitary:'Sanitary checks'}[i.kind])))]:[];
@@ -111,10 +119,10 @@ function render(){
   const stTxt=showOpen?'Working since '+hm(mm_(openS.login_at)):lastS?(lastS.kind==='break'?'On a break':'Finished for the day')+' · Worked '+fh(worked):'';
   let btn='';
   if(showOpen)btn=`<button data-a="out" data-d="${openS.d}">Log out</button>`;
-  else if(mp&&day===TODAY()&&mp.s!=null){btn=`<button data-a="in" data-d="${day}">${mySess.length?'Log in again':'Log in'}</button>`;if(lastS&&lastS.logout_at&&Date.now()-new Date(lastS.logout_at)<6e5)btn+=` <button class="ghost" data-a="undo" data-d="${day}">Undo log out</button>`}
-  const dayCard=mp?`<div class="yd"><div><div class="s2">Your day</div><div class="big">${mp.s!=null?'Shift '+mp.shift+' · '+hm(mp.s)+'–'+hm(mp.e):mp.leave?'On leave':esc(du.join(', '))+' duty'}</div><div class="s2">${mp.s!=null&&du.length?'+ '+esc(du.join(', '))+' · ':''}${stTxt}</div></div><div>${btn}</div></div>`:(openS&&tab==='day'?`<div class="yd"><div><div class="s2">Your day</div><div class="big">Still logged in</div><div class="s2">Since ${hm(mm_(openS.login_at))} on ${wd(openS.d)}</div></div><div><button data-a="out" data-d="${openS.d}">Log out</button></div></div>`:'');
+  else if(mp&&day===TODAY()&&(mp.s!=null||mp.work)){btn=`<button data-a="in" data-d="${day}">${mySess.length?'Log in again':'Log in'}</button>`;if(lastS&&lastS.logout_at&&Date.now()-new Date(lastS.logout_at)<6e5)btn+=` <button class="ghost" data-a="undo" data-d="${day}">Undo log out</button>`}
+  const dayCard=mp?`<div class="yd"><div><div class="s2">Your day</div><div class="big">${mp.s!=null?'Shift '+mp.shift+' · '+hm(mp.s)+'–'+hm(mp.e):mp.leave?'On leave':du.length?esc(du.join(', '))+' duty':'Rostered · no reporting time'}</div><div class="s2">${mp.rep?'<span class="rtag">Reporting '+hm(mp.s)+'</span> ':''}${mp.s!=null&&du.length?'+ '+esc(du.join(', '))+' · ':''}${stTxt}</div></div><div>${btn}</div></div>`:(openS&&tab==='day'?`<div class="yd"><div><div class="s2">Your day</div><div class="big">Still logged in</div><div class="s2">Since ${hm(mm_(openS.login_at))} on ${wd(openS.d)}</div></div><div><button data-a="out" data-d="${openS.d}">Log out</button></div></div>`:'');
   const on=new Set(SS.filter(s=>!s.logout_at&&s.d===day).map(s=>s.employee_id)).size;
-  const tbl=()=>`<div style="overflow-x:auto"><table class="tb"><colgroup><col style="width:70px"><col style="width:90px"><col style="width:20%"><col style="width:80px"><col style="width:50px"><col><col style="width:16%"><col style="width:110px"><col style="width:80px"></colgroup><tr><th>Match Time</th><th>Reporting</th><th>Series</th><th>Match No.</th><th>Level</th><th>Scorers / Assigned</th><th>Comment</th><th>Rankings Update</th><th>Work From</th></tr>${ms.map(q=>`<tr class="${q.sc.concat(q.rk).some(x=>x.id===me.id)?'mr':''}"><td>${esc(mt(q.t||''))}</td><td>${q.rep&&q.rep!=='-'?esc(rt(q.rep)):'-'}</td><td><b>${esc(q.series)}</b></td><td>${esc(q.mn)}</td><td>${esc(q.cov)}</td><td>${nl(q.sc,'sn')}</td><td>${esc(q.cm)}</td><td>${nl(q.rk,'sn')}</td><td class="${/home/i.test(q.wf)?'wh':/office/i.test(q.wf)?'wo':''}">${esc(q.wf)}</td></tr>`).join('')}</table></div>`;
+  const tbl=()=>`<div style="overflow-x:auto"><table class="tb"><colgroup><col style="width:70px"><col style="width:90px"><col style="width:20%"><col style="width:80px"><col style="width:50px"><col><col style="width:16%"><col style="width:110px"><col style="width:80px"></colgroup><tr><th>Match Time</th><th>Reporting</th><th>Series</th><th>Match No.</th><th>Level</th><th>Scorers / Assigned</th><th>Comment</th><th>Rankings Update</th><th>Work From</th></tr>${ms.map(q=>`<tr class="${q.sc.concat(q.rk).some(x=>x.id===me.id)?'mr':''}"><td>${esc(mt(q.t||''))}</td><td class="${q.rep&&q.rep!=='-'?'rp':''}">${q.rep&&q.rep!=='-'?esc(rt(q.rep)):'-'}</td><td><b>${esc(q.series)}</b></td><td>${esc(q.mn)}</td><td>${esc(q.cov)}</td><td>${nl(q.sc,'sn')}</td><td>${esc(q.cm)}</td><td>${nl(q.rk,'sn')}</td><td class="${/home/i.test(q.wf)?'wh':/office/i.test(q.wf)?'wo':''}">${esc(q.wf)}</td></tr>`).join('')}</table></div>`;
   const pub=new Set(rows.filter(r=>!team||r.team===team).map(r=>r.d)),strip=tab==='day'?`<div class="strip">${[-3,-2,-1,0,1,2,3].map(n=>{const d=new Date(day+'T00:00');d.setDate(d.getDate()+n);return `<button class="dchip ${n===0?'sel':''}" data-ds="${iso(d)}"><small>${d.toLocaleDateString([],{weekday:'short'})}</small><b>${d.getDate()}</b>${pub.has(iso(d))?'<i class="dt"></i>':''}</button>`}).join('')}</div>`:'';
   $('app').innerHTML=`<div class="hd"><div><h1>Team Roster</h1><div class="sub">${new Date((tab==='day'?day:TODAY())+'T00:00').toLocaleDateString([],{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · <span id="clk"></span></div></div>
   <div class="hr">${esc(me.name)} · ${me.role}<div><button id="bell">🔔${unread()?' <b>'+unread()+'</b>':''}</button><button id="cp">Change PIN</button><button id="out">Sign out</button></div></div></div>
@@ -256,11 +264,11 @@ function bellPanel(){const l=myN(),seen=new Date(localStorage['seen'+me.id]||0),
   $('cl').onclick=cls;$('cl0').onclick=cls;document.querySelectorAll('[data-vd]').forEach(b=>b.onclick=()=>{day=b.dataset.vd;tab='day';cls()})}
 const unreadPopup=()=>{if(unread())bellPanel();else $('modal').innerHTML=''};
 function nextBanner(all){if(tab==='mng')return'';const n=all.filter(p=>p.emp===me.id&&p.d>=TODAY()&&p.s!=null).sort((a,b)=>a.d.localeCompare(b.d))[0];
-  return n?`<div class="row me"><b>Your next shift</b><div>${wd(n.d)} · Shift ${n.shift} · ${hm(n.s)}–${hm(n.e)}</div></div>`:'<div class="row s">No upcoming shift found for you yet.</div>'}
-function pmap(list){const m={};list.forEach(r=>{if(!r.employee_id)return;const o=m[r.employee_id+'|'+r.d]=m[r.employee_id+'|'+r.d]||{s:null,e:null,leave:false,ser:[]};
-  if(r.kind==='leave'){o.leave=true;return}if(r.kind==='rank'){o.rk=1;return}if(r.start_min==null)return;if(o.s==null||r.start_min<o.s){o.s=r.start_min;o.e=r.end_min}o.ser.push(r.series)});
-  Object.values(m).forEach(o=>o.shift=o.s==null?0:o.s<420?1:o.e>1440?3:2);return m}
-const desc=o=>!o?'not rostered':o.s==null?(o.leave?'Leave':'Rankings update duty'):`Shift ${o.shift} ${hm(o.s)}–${hm(o.e)}`+(o.ser[0]?' ('+o.ser[0]+')':'')+(o.rk?' + rankings update':'');
+  return n?`<div class="row me"><b>Your next shift</b><div>${wd(n.d)} · Shift ${n.shift} · ${hm(n.s)}–${hm(n.e)}${n.rep?' · Reporting '+hm(n.s):''}</div></div>`:'<div class="row s">No upcoming shift found for you yet.</div>'}
+function pmap(list){const m={};list.forEach(r=>{if(!r.employee_id)return;const o=m[r.employee_id+'|'+r.d]=m[r.employee_id+'|'+r.d]||{s:null,e:null,leave:false,ser:[],items:[]};
+  if(r.kind==='leave'){o.leave=true;return}if(r.kind==='rank'){o.rk=1;return}if(r.start_min==null)return;o.items.push(r);o.ser.push(r.series)});
+  Object.values(m).forEach(o=>{const sh=shiftOf(o.items);if(sh){o.s=sh.s;o.e=sh.e}o.shift=o.s==null?0:o.s<420?1:o.e>1440?3:2});return m}
+const desc=o=>!o?'not rostered':o.s==null?(o.leave?'Leave':o.ser.length?'Rostered (no reporting time)':'Rankings update duty'):`Shift ${o.shift} ${hm(o.s)}–${hm(o.e)}`+(o.ser[0]?' ('+o.ser[0]+')':'')+(o.rk?' + rankings update':'');
 function buildNotifs(old,nw,ds,tn){const A=pmap(old),B=pmap(nw),oldD=new Set(old.map(r=>r.d)),out=[],ch=new Set();
   new Set([...Object.keys(A),...Object.keys(B)]).forEach(k=>{const a=A[k],b=B[k],[e,d]=k.split('|');if(desc(a)===desc(b))return;if(oldD.has(d))ch.add(d);
     out.push({employee_id:e,d,team:tn,title:(!a?(b.s==null?(b.leave?'Leave: ':'Duty: '):'New shift: '):!b?'Removed from roster: ':'Shift changed: ')+wd(d),body:!a?desc(b):!b?'You are no longer rostered on this day.':desc(a)+' → '+desc(b)})});
