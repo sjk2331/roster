@@ -33,7 +33,7 @@ button{cursor:pointer}button.p{background:var(--ab);border-color:var(--ab);color
 .tb{border-collapse:collapse;width:100%;min-width:900px;table-layout:fixed;font-size:13px}.tb td,.tb th{word-wrap:break-word}.tb th{background:#facc15;color:#000;padding:6px;border:1px solid var(--b);text-align:left;white-space:nowrap}.tb td{padding:6px;border:1px solid var(--b);vertical-align:top}.tb tr.mr td{background:var(--at)}.tb td.wh{background:#c026d3;color:#fff}.tb td.wo{background:#84b36b;color:#000}
 .dt{display:block;width:6px;height:6px;border-radius:50%;background:var(--g);margin-top:2px}.dchip.sel .dt{background:#fff}
 .yd button.ghost{background:transparent;color:#fff;border:1px solid #ffffff99}
-.rtag{background:#fff;color:var(--ad);border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px}.pill.r{background:#facc15;color:#000}.tb tr td.rp{background:#fde68a;color:#000;font-weight:600}
+.rtag{background:#fff;color:var(--ad);border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px}.pill.r{background:#facc15;color:#000;font-size:14px;font-weight:800;padding:3px 11px;border:2px solid #ca8a04;order:-1}.tb tr td.rp{background:#fde68a;color:#000;font-weight:600}
 </style></head><body><main id="app"></main><div id="modal"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -107,8 +107,8 @@ function render(){
   const card=q=>{if(q.kind==='leave')return `<div class="row mc"><div class="tm">🌴</div><div class="bdy"><div class="s">${wd(q.d)}</div><div class="ttl">On leave</div><div class="s">${esc(q.team)}</div></div></div>`;const mi=q.sc.concat(q.rk).some(x=>x.id===me.id),lab={support:'Assigned',sanitary:'Assigned',normal:'Normal shift',qc:'QC'}[q.kind]||'Scoring';
     const st=q.d===TODAY()&&q.kind==='match'&&q.s!=null?(nowM()<q.s?'Starts in '+dur(q.s-nowM()):nowM()<=q.e?'Started':''):'';
     return `<div class="row mc ${mi?'me':''}"><div class="tm">${esc(mt(q.t||'')||'—')}<div class="ic">${icon(q)}</div></div><div class="bdy">${tab==='my'?'<div class="s">'+wd(q.d)+'</div>':''}
-    <div class="ttl">${esc(q.series)}${q.mn?' <span class="s">· Match '+esc(q.mn)+'</span>':''}${q.kind!=='match'?' <span class="bd">'+esc(q.kind.toUpperCase())+'</span>':''}</div>
-    <div class="meta">${q.cov?'<span class="pill l">Level '+esc(q.cov)+'</span>':''}${q.wf?'<span class="pill '+(/home/i.test(q.wf)?'h':/office/i.test(q.wf)?'o':'')+'">'+esc(q.wf)+'</span>':''}${q.rep&&q.rep!=='-'?'<span class="pill r">Reporting '+esc(rt(q.rep))+'</span>':''}${st?'<span class="pill s2">'+st+'</span>':''}${teams.length>1?'<span class="s">'+esc(q.team)+'</span>':''}</div>
+    <div class="ttl">${esc(q.series)}${q.mn?' <span class="s">· '+(/^\d/.test(q.mn)?'Match ':'')+esc(q.mn)+'</span>':''}${q.kind!=='match'?' <span class="bd">'+esc(q.kind.toUpperCase())+'</span>':''}</div>
+    <div class="meta">${q.cov?'<span class="pill l">Level '+esc(q.cov)+'</span>':''}${q.wf?'<span class="pill '+(/home/i.test(q.wf)?'h':/office/i.test(q.wf)?'o':'')+'">'+esc(q.wf)+'</span>':''}${q.rep&&q.rep!=='-'?'<span class="pill r">⏰ Reporting '+esc(rt(q.rep))+'</span>':''}${st?'<span class="pill s2">'+st+'</span>':''}${teams.length>1?'<span class="s">'+esc(q.team)+'</span>':''}</div>
     <div class="ppl"><span class="s">${lab}</span>${chips(q.sc)||'—'}</div>${q.rk.length?'<div class="ppl"><span class="s">Rankings update</span>'+chips(q.rk)+'</div>':''}${q.cm?'<div class="s">'+esc(q.cm)+'</div>':''}</div></div>`};
   const mp=tab==='day'?all.find(p=>p.emp===me.id&&p.d===day&&(!team||p.team===team)):null;
   const du=mp?[...new Set(mp.items.filter(i=>['rank','support','sanitary'].includes(i.kind)).map(i=>({rank:'Rankings update',support:'Client support',sanitary:'Sanitary checks'}[i.kind])))]:[];
