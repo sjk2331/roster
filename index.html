@@ -74,7 +74,7 @@ async function pageRows(){let all=[],p=0;const from=iso(new Date(Date.now()-90*8
 async function load(){
   const [a,n,t,f,ss]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100),sb.from('att_sessions').select('*').gte('d',addD(TODAY(),-1))]);SS=ss.data||[];
   rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
-  render();showNotices();
+  render();if(!staleCheck())showNotices();
   if(!chan){try{chan=sb.channel('notif-live').on('postgres_changes',{event:'*',schema:'public',table:'notifications'},()=>{clearTimeout(qt);qt=setTimeout(()=>quickSync(),400)}).subscribe()}catch(e){}}
   if(!localStorage['cl'+TODAY()]){localStorage['cl'+TODAY()]=1;try{sb.rpc('cleanup_notifications').then(()=>{},()=>{})}catch(e){}}
 }
@@ -113,7 +113,7 @@ function render(){
   const mp=tab==='day'?all.find(p=>p.emp===me.id&&p.d===day&&(!team||p.team===team)):null;
   const du=mp?[...new Set(mp.items.filter(i=>['rank','support','sanitary'].includes(i.kind)).map(i=>({rank:'Rankings update',support:'Client support',sanitary:'Sanitary checks'}[i.kind])))]:[];
   const mm_=x=>{const d=new Date(x);return d.getHours()*60+d.getMinutes()},fh=ms=>{const m=Math.max(0,Math.round(ms/60000));return pad(Math.floor(m/60))+':'+pad(m%60)};
-  const mySess=SS.filter(s=>s.employee_id===me.id&&s.d===day).sort((x,y)=>x.login_at.localeCompare(y.login_at)),openS=SS.find(s=>s.employee_id===me.id&&!s.logout_at),lastS=mySess[mySess.length-1];
+  const mySess=SS.filter(s=>s.employee_id===me.id&&s.d===day).sort((x,y)=>x.login_at.localeCompare(y.login_at)),openS=SS.find(s=>s.employee_id===me.id&&!s.logout_at&&Date.now()-new Date(s.login_at)<=14*36e5),staleS=SS.find(s=>s.employee_id===me.id&&!s.logout_at&&Date.now()-new Date(s.login_at)>14*36e5),lastS=mySess[mySess.length-1];
   const worked=mySess.reduce((t,s)=>t+(s.logout_at?new Date(s.logout_at)-new Date(s.login_at):0),0);
   const showOpen=openS&&(day===TODAY()||openS.d===day);
   const stTxt=showOpen?'Working since '+hm(mm_(openS.login_at)):lastS?(lastS.kind==='break'?'On a break':'Finished for the day')+' · Worked '+fh(worked):'';
@@ -128,7 +128,7 @@ function render(){
   <div class="hr">${esc(me.name)} · ${me.role}<div><button id="bell">🔔${unread()?' <b>'+unread()+'</b>':''}</button><button id="cp">Change PIN</button><button id="out">Sign out</button></div></div></div>
   <div class="tabs"><button id="t1" class="${tab==='day'?'p':''}">Day roster</button><button id="t2" class="${tab==='my'?'p':''}">My shifts</button>${staff()?`<button id="t3" class="${tab==='mng'?'p':''}">Manage</button>`:''}${me.role==='admin'?`<button id="t4" class="${tab==='att'?'p':''}">Attendance</button>`:''}</div>
   ${tab==='att'?'<div id="attbox" class="s">Loading…</div>':tab==='mng'?manage():`${strip}<div class="bar">${tab==='day'?`<input type="date" id="dp" value="${day}"><button id="td">Today</button><label><input type="checkbox" id="mn" ${mine?'checked':''}> Only my matches</label> <button id="vw">${view==='table'?'Cards view':'Table view'}</button>`:''}<select id="tm"><option value="">All teams</option>${teams.map(t=>`<option ${t===team?'selected':''}>${esc(t)}</option>`).join('')}</select>
-  ${tab==='day'?`<span class="s">${ms.length} matches${me.role==='admin'?' · '+on+' working now':''}</span>`:''}</div><div id="err"></div>${tab==='my'?'':''}${tab==='day'&&NT.size?'<div class="row urg"><b>📌 Note for the day</b>'+[...NT].map(x=>'<div>'+esc(x)+'</div>').join('')+'</div>':''}${dayCard}${tab==='day'?'':nextBanner(all)}${tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row '+(LME.size?'me':'')+'"><b>On leave</b>'+(LME.size?' <span class="bd lv">including you</span>':'')+'<div class="ppl">'+[...L].map(x=>'<span class="chip'+(LME.has(x)?' me':'')+'">'+esc(x)+'</span>').join('')+'</div></div>':''}`}`;
+  ${tab==='day'?`<span class="s">${ms.length} matches${me.role==='admin'?' · '+on+' working now':''}</span>`:''}</div><div id="err"></div>${tab==='my'?'':''}${tab==='day'&&NT.size?'<div class="row urg"><b>📌 Note for the day</b>'+[...NT].map(x=>'<div>'+esc(x)+'</div>').join('')+'</div>':''}${tab==='day'&&staleS?'<div class="row urg"><b>You forgot to log out on '+wd(staleS.d)+'</b><div class="s">Log in as usual when your shift starts. The old session is closed for you, and your admin will set the correct time.</div></div>':''}${dayCard}${tab==='day'?'':nextBanner(all)}${tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row '+(LME.size?'me':'')+'"><b>On leave</b>'+(LME.size?' <span class="bd lv">including you</span>':'')+'<div class="ppl">'+[...L].map(x=>'<span class="chip'+(LME.has(x)?' me':'')+'">'+esc(x)+'</span>').join('')+'</div></div>':''}`}`;
   const g=id=>$(id);g('bell').onclick=()=>bellPanel();g('cp').onclick=changePin;g('out').onclick=async()=>{if(chan){try{sb.removeChannel(chan)}catch(e){}chan=null}await sb.auth.signOut();me=null;boot()};
   g('t1').onclick=()=>{tab='day';render()};g('t2').onclick=()=>{tab='my';render()};if(g('t3'))g('t3').onclick=()=>{tab='mng';render()};if(g('t4'))g('t4').onclick=()=>{tab='att';render()};
   if(g('tm'))g('tm').onchange=e=>{team=e.target.value;render()};if(g('vw'))g('vw').onclick=()=>{view=view==='table'?'cards':'table';localStorage.view=view;render()};
@@ -143,8 +143,11 @@ async function refreshAtt(){const [t,x]=await Promise.all([sb.from('attendance')
 async function punch(a,d){
   const x=a==='in'?await sb.rpc('att_in',{p_d:d}):a==='undo'?await sb.rpc('att_undo'):await sb.rpc('att_out',{p_kind:a});
   if(x.error)return err(x.error.message);
-  await refreshAtt();render();if(a==='done')timesheet(d);
+  const fg=a==='in'&&x.data?String(x.data):null;await refreshAtt();render();if(a==='done')timesheet(d);if(fg)forgotBox(fg);
 }
+function staleCheck(){const st=SS.find(s=>s.employee_id===me.id&&!s.logout_at&&Date.now()-new Date(s.login_at)>14*36e5);if(!st||localStorage['fg'+me.id+TODAY()])return false;localStorage['fg'+me.id+TODAY()]=1;
+  const l=new Date(st.login_at);$('modal').innerHTML=`<div class="mod"><div class="box urg"><h3>You forgot to log out</h3><p>You did not log out on ${wd(st.d)} (logged in at ${hm(l.getHours()*60+l.getMinutes())}).</p><p class="s">No problem. Log in as usual when your next shift starts. The old session will be closed for you, and your admin will set the correct time.</p><button class="p" id="fgok">OK</button></div></div>`;$('fgok').onclick=()=>{$('modal').innerHTML='';showNotices()};return true}
+function forgotBox(t){const [d,tm]=t.split('|');$('modal').innerHTML=`<div class="mod"><div class="box urg"><h3>You forgot to log out</h3><p>You did not log out on ${esc(d)} (logged in at ${esc(tm)}).</p><p class="s">You are now logged in for this shift. Your admin will set the correct logout time for the old day.</p><button class="p" id="fgok">OK</button></div></div>`;$('fgok').onclick=()=>{$('modal').innerHTML=''}}
 function outChoice(d){
   $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Log out</h3><p>What is this?</p><div class="bar"><button class="p" id="lb">Just a break</button><button class="p" id="ld">Done for the day</button></div><div class="bar"><button id="lc">Cancel</button></div><div class="s">A break lets you log in again. You can undo a log out within 10 minutes.</div></div></div>`;
   $('lb').onclick=()=>{$('modal').innerHTML='';punch('break',d)};$('ld').onclick=()=>{$('modal').innerHTML='';punch('done',d)};$('lc').onclick=()=>{$('modal').innerHTML=''}}
@@ -288,11 +291,11 @@ async function attLoad(){
   const AM={},SM={},PM={},T=TODAY();A.forEach(a=>AM[a.employee_id+'|'+a.d]=a);S.forEach(s=>{(SM[s.employee_id+'|'+s.d]=SM[s.employee_id+'|'+s.d]||[]).push(s)});
   days().forEach(d=>{if(d.emp&&d.s!=null&&d.d>=af&&d.d<=at&&d.d<=T)PM[d.emp+'|'+d.d]=d});
   const E=id=>emps.find(e=>e.id===id)||{name:'?',team:''},mm=v=>{const d=new Date(v);return d.getHours()*60+d.getMinutes()},fh=ms=>{const m=Math.max(0,Math.round(ms/60000));return pad(Math.floor(m/60))+':'+pad(m%60)};
-  const L=[...new Set([...Object.keys(AM),...Object.keys(SM),...Object.keys(PM)])].map(k=>{const [id,d]=k.split('|'),a=AM[k],p=PM[k],e=E(id),ss=(SM[k]||[]).slice().sort((x,y)=>x.login_at.localeCompare(y.login_at)),f=ss[0],l=ss[ss.length-1],op=ss.find(x=>!x.logout_at);
+  const L=[...new Set([...Object.keys(AM),...Object.keys(SM),...Object.keys(PM)])].map(k=>{const [id,d]=k.split('|'),a=AM[k],p=PM[k],e=E(id),ss=(SM[k]||[]).slice().sort((x,y)=>x.login_at.localeCompare(y.login_at)),f=ss[0],l=ss[ss.length-1],op=ss.find(x=>!x.logout_at||x.kind==='forgot');
     const worked=ss.reduce((t,x)=>t+(x.logout_at?new Date(x.logout_at)-new Date(x.login_at):0),0),diff=f&&p?mm(f.login_at)-p.s:null;
-    return {k,id,d,name:e.name,team:e.team,shift:p?'Shift '+p.shift+' '+hm(p.s)+'–'+hm(p.e):'—',li:f?hm(mm(f.login_at)):'—',lo:l&&l.logout_at?hm(mm(l.logout_at)):'—',hrs:f?fh(worked)+(op?'+':''):'—',n:ss.length||'',
-      sess:ss.map(x=>hm(mm(x.login_at))+'–'+(x.logout_at?hm(mm(x.logout_at)):'…')).join(', '),diff,op,
-      st:!f?(d<T?'Not logged in':'Not yet'):op?(d<T?'No logout':'Working'):(d===T&&l.kind==='break'?'On break':'Done'),dar:a?.ts_darwin?'✓':'–',zo:a?.ts_zoho?'✓':'–'}})
+    return {k,id,d,name:e.name,team:e.team,shift:p?'Shift '+p.shift+' '+hm(p.s)+'–'+hm(p.e):'—',li:f?hm(mm(f.login_at)):'—',lo:l&&l.logout_at?hm(mm(l.logout_at)):'—',hrs:f?fh(worked)+(ss.some(x=>!x.logout_at)?'+':''):'—',n:ss.length||'',
+      sess:ss.map(x=>hm(mm(x.login_at))+'–'+(x.logout_at&&x.kind!=='forgot'?hm(mm(x.logout_at)):'?')).join(', '),diff,op,
+      st:!f?(d<T?'Not logged in':'Not yet'):op?(d<T||op.kind==='forgot'?'No logout':'Working'):(d===T&&l.kind==='break'?'On break':'Done'),dar:a?.ts_darwin?'✓':'–',zo:a?.ts_zoho?'✓':'–'}})
     .filter(r=>(!ateam||r.team===ateam)&&(!aq||r.name.toLowerCase().includes(aq.toLowerCase()))).sort((x,y)=>y.d.localeCompare(x.d)||x.name.localeCompare(y.name));
   const bad=r=>r.st==='Not logged in'||r.st==='No logout';
   box.innerHTML=`<div class="bar"><label class="s">From <input type="date" id="af" value="${af}"></label><label class="s">To <input type="date" id="at" value="${at}"></label>
