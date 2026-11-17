@@ -325,6 +325,10 @@ async function attLoad(){
     let x=await sb.from('att_sessions').update({logout_at:t.toISOString(),kind:'done'}).eq('id',sid);if(x.error)return alert(x.error.message);
     await sb.from('attendance').update({logout_at:t.toISOString()}).eq('employee_id',id).eq('d',d);attLoad()});
 }
+function waBox(tn,ds,out,ne){
+  const nt=out.filter(r=>r.kind==='note').map(r=>'📌 '+wd(r.d)+': '+r.person_raw),msg=`📅 ${tn} roster published\n${ds.map(wd).join(', ')}\nOpen the dashboard to see your shifts: ${location.href.split('#')[0]}${nt.length?'\n'+nt.join('\n'):''}`;
+  $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Roster saved</h3><div class="s">${out.length} entries for ${ds.length} date(s)</div>${ne?'<div class="s" style="color:var(--r)">Notifications were not sent: '+esc(ne)+'</div>':''}<p class="s">Message for your WhatsApp group:</p><textarea id="wam" rows="7" style="width:100%" readonly>${esc(msg)}</textarea><div class="bar"><button class="p" id="wac">Copy message</button><button id="wax">Close</button></div></div></div>`;
+  $('wac').onclick=async()=>{try{await navigator.clipboard.writeText(msg);$('wac').textContent='Copied ✓'}catch(e){$('wam').select()}};$('wax').onclick=()=>{$('modal').innerHTML=''}}
 function changePin(){
   const pi=(id,ph)=>`<input id="${id}" type="password" inputmode="numeric" maxlength="6" placeholder="${ph}">`;
   $('modal').innerHTML=`<div class="mod"><div class="box"><h3>Change PIN</h3><div class="bar">${pi('p0','Current PIN')}</div><div class="bar">${pi('p1','New 6-digit PIN')}${pi('p2','Repeat new PIN')}</div><div id="perr" class="s" style="color:var(--r)"></div><div class="bar"><button class="p" id="pok">Save</button><button id="pcx">Cancel</button></div></div></div>`;
