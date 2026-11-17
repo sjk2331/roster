@@ -127,7 +127,7 @@ function render(){
   const wl=d=>new Date(d+'T00:00').toLocaleDateString([],{weekday:'long',day:'numeric',month:'short'}),T0=TODAY(),T1=addD(T0,1);
   const myList=()=>{const by={};ms.forEach(q=>{(by[q.d]=by[q.d]||[]).push(q)});if(!by[T0])by[T0]=[];
     return Object.keys(by).sort().map(d=>{const p=all.find(x=>x.emp===me.id&&x.d===d&&(!team||x.team===team)),lab=d===T0?'Today':d===T1?'Tomorrow':'',
-      line=p&&p.s!=null?'Shift '+p.shift+' · '+hm(p.s)+'–'+hm(p.e)+(p.rep?' · <span class="pill r">⏰ Reporting '+hm(p.s)+'</span>':''):by[d].some(q=>q.kind==='leave')?'':by[d].length?'Rostered · no shift time':'No shift today';
+      line=p&&p.s!=null?'Shift '+p.shift+' · '+hm(p.s)+'–'+hm(p.e):by[d].some(q=>q.kind==='leave')?'':by[d].length?'Rostered · no shift time':'No shift today';
       return `<div class="dh"><div class="dt2">${lab?lab+' · ':''}${wl(d)}</div>${line?'<div class="dl">'+line+'</div>':''}</div>`+by[d].map(card).join('')}).join('')};
   const pub=new Set(rows.filter(r=>!team||r.team===team).map(r=>r.d)),strip=tab==='day'?`<div class="strip">${[-3,-2,-1,0,1,2,3].map(n=>{const d=new Date(day+'T00:00');d.setDate(d.getDate()+n);return `<button class="dchip ${n===0?'sel':''}" data-ds="${iso(d)}"><small>${d.toLocaleDateString([],{weekday:'short'})}</small><b>${d.getDate()}</b>${pub.has(iso(d))?'<i class="dt"></i>':''}</button>`}).join('')}</div>`:'';
   $('app').innerHTML=`<div class="hd"><div><h1>Team Roster</h1><div class="sub">${new Date((tab==='day'?day:TODAY())+'T00:00').toLocaleDateString([],{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · <span id="clk"></span></div></div>
