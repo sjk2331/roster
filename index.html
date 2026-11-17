@@ -295,11 +295,12 @@ function buildNotifs(old,nw,ds,tn){const A=pmap(old),B=pmap(nw),oldD=new Set(old
   nw.filter(r=>r.kind==='note'&&!on.has(r.d+'|'+r.person_raw)).forEach(r=>out.push({team:tn,d:r.d,title:'Note: '+wd(r.d),body:r.person_raw}));
   return out}
 let af=iso(new Date(Date.now()-6*864e5)),at=TODAY(),aq='',ateam='';
+let attSeq=0;
 async function attLoad(){
-  const box=$('attbox');if(!box)return;
+  const box=$('attbox');if(!box)return;const my=++attSeq;
   const rng=q=>q.gte('d',af).lte('d',at).order('d');
   const pull=async(tbl,fn)=>{let A=[],p=0;for(;;){const x=await fn(sb.from(tbl).select('*')).range(p,p+999);if(x.error){box.textContent=x.error.message;return null}A=A.concat(x.data||[]);if((x.data||[]).length<1000)break;p+=1000}return A};
-  const A=await pull('attendance',rng),S=await pull('att_sessions',q=>rng(q).order('id'));if(!A||!S)return;
+  const A=await pull('attendance',rng),S=await pull('att_sessions',q=>rng(q).order('id'));if(!A||!S||my!==attSeq||!box.isConnected)return;
   const AM={},SM={},PM={},T=TODAY();A.forEach(a=>AM[a.employee_id+'|'+a.d]=a);S.forEach(s=>{(SM[s.employee_id+'|'+s.d]=SM[s.employee_id+'|'+s.d]||[]).push(s)});
   days().forEach(d=>{if(d.emp&&d.s!=null&&d.d>=af&&d.d<=at&&d.d<=T)PM[d.emp+'|'+d.d]=d});
   const E=id=>emps.find(e=>e.id===id)||{name:'?',team:''},mm=v=>{const d=new Date(v);return d.getHours()*60+d.getMinutes()},fh=ms=>{const m=Math.max(0,Math.round(ms/60000));return pad(Math.floor(m/60))+':'+pad(m%60)};
@@ -312,12 +313,12 @@ async function attLoad(){
   const bad=r=>r.st==='Not logged in'||r.st==='No logout';
   box.innerHTML=`<div class="bar"><label class="s">From <input type="date" id="af" value="${af}"></label><label class="s">To <input type="date" id="at" value="${at}"></label>
     <select id="ateam"><option value="">All teams</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option ${t===ateam?'selected':''}>${esc(t)}</option>`).join('')}</select>
-    <input id="aq" placeholder="Search name" value="${esc(aq)}"><button id="aex">Export CSV</button></div>
+    <input id="aq" placeholder="Search name" value="${esc(aq)}"><button id="arf">Refresh</button> <button id="aex">Export CSV</button></div>
     <div class="s">${L.length} records · ${L.filter(r=>r.st==='Not logged in').length} not logged in · ${L.filter(r=>r.st==='No logout').length} missing logout · ${L.filter(r=>r.diff>10).length} late by more than 10 min</div>
     <div style="overflow-x:auto"><table class="tb" style="table-layout:auto;min-width:1000px"><tr><th>Date</th><th>Name</th><th>Team</th><th>Shift</th><th>First login</th><th>Last logout</th><th>Total hours</th><th>Late by</th><th>Sessions</th><th>Status</th><th>Darwin</th><th>Zoho</th><th></th></tr>
     ${L.map(r=>`<tr><td>${r.d}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.shift}</td><td style="${r.diff>10?'color:var(--r);font-weight:600':''}" title="${r.diff>10?'Late by '+r.diff+' min':''}">${r.li}</td><td>${r.lo}</td><td>${r.hrs}</td><td style="${r.diff>10?'color:var(--r);font-weight:600':''}">${r.diff==null?'—':r.diff>0?r.diff+' min':'On time'}</td><td>${r.sess}</td><td style="${bad(r)?'color:var(--r);font-weight:600':''}">${r.st}</td><td>${r.dar}</td><td>${r.zo}</td><td>${r.st==='No logout'?'<button data-sl="'+r.op.id+'@'+r.k+'" data-li="'+r.op.login_at+'">Set logout</button>':''}</td></tr>`).join('')}</table></div>`;
-  $('af').onchange=e=>{af=e.target.value;attLoad()};$('at').onchange=e=>{at=e.target.value;attLoad()};$('ateam').onchange=e=>{ateam=e.target.value;attLoad()};$('aq').onchange=e=>{aq=e.target.value;attLoad()};
-  $('aex').onclick=()=>{const c=[['Date','Name','Team','Shift','First login','Last logout','Total hours (HH:MM)','Sessions','Late by (min)','Status','Darwin','Zoho']].concat(L.map(r=>[r.d,r.name,r.team,r.shift,r.li,r.lo,r.hrs,r.sess,r.diff==null?'':r.diff,r.st,r.dar,r.zo])).map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const q_=id=>box.querySelector('#'+id);q_('af').onchange=e=>{af=e.target.value;attLoad()};q_('at').onchange=e=>{at=e.target.value;attLoad()};q_('ateam').onchange=e=>{ateam=e.target.value;attLoad()};q_('aq').onchange=e=>{aq=e.target.value;attLoad()};q_('arf').onclick=()=>attLoad();
+  q_('aex').onclick=()=>{const c=[['Date','Name','Team','Shift','First login','Last logout','Total hours (HH:MM)','Sessions','Late by (min)','Status','Darwin','Zoho']].concat(L.map(r=>[r.d,r.name,r.team,r.shift,r.li,r.lo,r.hrs,r.sess,r.diff==null?'':r.diff,r.st,r.dar,r.zo])).map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c],{type:'text/csv'}));a.download='attendance_'+af+'_to_'+at+'.csv';a.click()};
   document.querySelectorAll('[data-sl]').forEach(b=>b.onclick=async()=>{const [sid,k]=b.dataset.sl.split('@'),[id,d]=k.split('|'),v=prompt('Logout time for '+E(id).name+' on '+d+' (HH:MM, 24-hour)'),m=/^(\d{1,2}):(\d{2})$/.exec(v||'');if(!m)return;
     let t=new Date(d+'T'+pad(+m[1])+':'+m[2]+':00');if(t<new Date(b.dataset.li))t=new Date(t.getTime()+864e5);
@@ -336,7 +337,7 @@ async function quickSync(force){if(!me)return;
   const f=await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100);if(!f.data)return;
   const changed=f.data.length!==notifs.length||(f.data[0]&&f.data[0].id)!==(notifs[0]||{}).id;
   if(changed||force){notifs=f.data;const [a,n]=await Promise.all([pageRows(),sb.from('notices').select('*')]);rows=a.data||rows;notices=n.data||notices;
-    if(tab!=='mng'){render();if(changed&&!$('modal').innerHTML)unreadPopup()}else updTitle()}}
+    if(tab!=='mng'&&tab!=='att')render();else updTitle();if(changed&&tab!=='mng'&&!$('modal').innerHTML)unreadPopup()}}
 setInterval(()=>{if(!document.hidden)quickSync()},20000);
 const wake=()=>{if(me&&!document.hidden)quickSync(true)};
 document.addEventListener('visibilitychange',wake);window.addEventListener('focus',wake);window.addEventListener('online',wake);window.addEventListener('pageshow',wake);
