@@ -49,7 +49,7 @@ const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()), TODAY
 const rt=v=>/^0\.\d+$/.test(v)?hm(Math.round(v*1440)):v;
 const mt=v=>/^0\.\d+$/.test(v)?hm(Math.round(v*1440)):v;
 const hm=m=>m==null?'':pad(Math.floor(m/60)%24)+':'+pad(m%60);
-let SS=[],chan=null,qt=null,me=null,emps=[],rows=[],att={},notices=[],notifs=[],day=TODAY(),team='',mine=localStorage.mine==='1',view=localStorage.view||(innerWidth<700?'cards':'table'),tab='day',prev=null;
+let ACK=[],SS=[],chan=null,qt=null,me=null,emps=[],rows=[],att={},notices=[],notifs=[],day=TODAY(),team='',mine=localStorage.mine==='1',view=localStorage.view||(innerWidth<700?'cards':'table'),tab='day',prev=null;
 const staff=()=>me&&['admin','lead'].includes(me.role);
 const err=t=>{const e=$('err');if(e)e.textContent=t||''};
 
@@ -73,7 +73,7 @@ async function pageRows(){let all=[],p=0;const from=iso(new Date(Date.now()-90*8
   for(;;){const x=await sb.from('assignments').select('*').gte('d',from).order('d').order('id').range(p,p+999);if(x.error||!x.data)break;all=all.concat(x.data);if(x.data.length<1000)break;p+=1000}
   return {data:all}}
 async function load(){
-  const [a,n,t,f,ss]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100),sb.from('att_sessions').select('*').gte('d',addD(TODAY(),-1))]);SS=ss.data||[];
+  const [a,n,t,f,ss,ak]=await Promise.all([pageRows(),sb.from('notices').select('*'),sb.from('attendance').select('*'),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(100),sb.from('att_sessions').select('*').gte('d',addD(TODAY(),-1)),sb.from('notif_ack').select('*')]);SS=ss.data||[];ACK=ak.data||[];
   rows=a.data||[];notices=n.data||[];notifs=f.data||[];att={};(t.data||[]).forEach(x=>att[x.employee_id+'|'+x.d]=x);
   render();if(!staleCheck())showNotices();
   if(!chan){try{chan=sb.channel('notif-live').on('postgres_changes',{event:'*',schema:'public',table:'notifications'},()=>{clearTimeout(qt);qt=setTimeout(()=>quickSync(),400)}).subscribe()}catch(e){}}
@@ -134,7 +134,7 @@ function render(){
   <div class="hr">${esc(me.name)} · ${me.role}<div><button id="bell">🔔${unread()?' <b>'+unread()+'</b>':''}</button><button id="cp">Change PIN</button><button id="out">Sign out</button></div></div></div>
   <div class="tabs"><button id="t1" class="${tab==='day'?'p':''}">Day roster</button><button id="t2" class="${tab==='my'?'p':''}">My shifts</button>${staff()?`<button id="t3" class="${tab==='mng'?'p':''}">Manage</button>`:''}${me.role==='admin'?`<button id="t4" class="${tab==='att'?'p':''}">Attendance</button>`:''}</div>
   ${tab==='att'?'<div id="attbox" class="s">Loading…</div>':tab==='mng'?manage():`${strip}<div class="bar">${tab==='day'?`<input type="date" id="dp" value="${day}"><button id="td">Today</button><label><input type="checkbox" id="mn" ${mine?'checked':''}> Only my matches</label> <button id="vw">${view==='table'?'Cards view':'Table view'}</button>`:''}<select id="tm"><option value="">All teams</option>${teams.map(t=>`<option ${t===team?'selected':''}>${esc(t)}</option>`).join('')}</select>
-  ${tab==='day'?`<span class="s">${ms.length} matches${me.role==='admin'?' · '+on+' working now':''}</span>`:''}</div><div id="err"></div>${tab==='my'?'':''}${tab==='day'&&NT.size?'<div class="row urg"><b>📌 Note for the day</b>'+[...NT].map(x=>'<div>'+esc(x)+'</div>').join('')+'</div>':''}${tab==='day'&&staleS?'<div class="row urg"><b>You forgot to log out on '+wd(staleS.d)+'</b><div class="s">Log in as usual when your shift starts. The old session is closed for you, and your admin will set the correct time.</div></div>':''}${dayCard}${tab==='my'?myList():tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row '+(LME.size?'me':'')+'"><b>On leave</b>'+(LME.size?' <span class="bd lv">including you</span>':'')+'<div class="ppl">'+[...L].map(x=>'<span class="chip'+(LME.has(x)?' me':'')+'">'+esc(x)+'</span>').join('')+'</div></div>':''}`}`;
+  ${tab==='day'?`<span class="s">${ms.length} matches${me.role==='admin'?' · '+on+' working now':''}</span>`:''}</div><div id="err"></div>${tab==='my'?'':''}${tab==='day'?myAll().filter(x=>x.until_at&&x.d===day).map(x=>'<div class="row urg"><b>📣 '+esc(x.title)+'</b><div>'+esc(x.body)+'</div></div>').join(''):''}${tab==='day'&&NT.size?'<div class="row urg"><b>📌 Note for the day</b>'+[...NT].map(x=>'<div>'+esc(x)+'</div>').join('')+'</div>':''}${tab==='day'&&staleS?'<div class="row urg"><b>You forgot to log out on '+wd(staleS.d)+'</b><div class="s">Log in as usual when your shift starts. The old session is closed for you, and your admin will set the correct time.</div></div>':''}${dayCard}${tab==='my'?myList():tab==='day'&&view==='table'&&ms.length?tbl():(ms.map(card).join('')||'<div class="s">Nothing rostered.</div>')}${tab==='day'&&L.size?'<div class="row '+(LME.size?'me':'')+'"><b>On leave</b>'+(LME.size?' <span class="bd lv">including you</span>':'')+'<div class="ppl">'+[...L].map(x=>'<span class="chip'+(LME.has(x)?' me':'')+'">'+esc(x)+'</span>').join('')+'</div></div>':''}`}`;
   const g=id=>$(id);g('bell').onclick=()=>bellPanel();g('cp').onclick=changePin;g('out').onclick=async()=>{if(chan){try{sb.removeChannel(chan)}catch(e){}chan=null}await sb.auth.signOut();me=null;boot()};
   g('t1').onclick=()=>{tab='day';render()};g('t2').onclick=()=>{tab='my';render()};if(g('t3'))g('t3').onclick=()=>{tab='mng';render()};if(g('t4'))g('t4').onclick=()=>{tab='att';render()};
   if(g('tm'))g('tm').onchange=e=>{team=e.target.value;render()};if(g('vw'))g('vw').onclick=()=>{view=view==='table'?'cards':'table';localStorage.view=view;render()};
@@ -168,7 +168,7 @@ function showNotices(){unreadPopup()}
 function manage(){return `<div id="err"></div><div class="row"><h3>Publish roster</h3><div class="bar"><input id="tn" placeholder="Team (e.g. Cricket, Tagging)" value="Cricket"><input type="file" id="fl" accept=".xlsx,.xls"></div>
   <h3 style="margin-top:14px">Or paste from Google Sheets</h3><textarea id="pb" rows="5" style="width:100%" placeholder="Copy the day's rows in Google Sheets (date row down to the Leave row) and paste here"></textarea><button id="pbBtn">Preview pasted roster</button>
   <div id="pv2" class="s" style="margin:8px 0"></div><label><input type="checkbox" id="nn" checked> Notify employees</label> <button class="p" id="sv" disabled>Save to dashboard</button><div class="s">Re-uploading a date replaces that date for that team. Log in/out records are kept.</div></div>
-  ${me.role==='admin'?sendBox():''}<div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf"><input type="date" id="nt"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
+  ${me.role==='admin'?sendBox():''}<div class="row"><h3>Add reminder</h3><div class="bar"><input type="date" id="nf" min="${dmin()}" max="${dmax()}"><input type="date" id="nt" min="${dmin()}" max="${dmax()}"><select id="nteam"><option value="">Everyone</option>${[...new Set(emps.map(e=>e.team))].map(t=>`<option>${esc(t)}</option>`).join('')}</select><label><input type="checkbox" id="nu"> Priority</label></div>
   <textarea id="nb" rows="2" style="width:100%" placeholder="Message"></textarea><button class="p" id="na">Add</button>
   ${notices.map(n=>`<div class="s">${n.date_from}→${n.date_to} ${esc(n.body)} <button data-dn="${n.id}">✕</button></div>`).join('')}</div>
   <div class="row"><h3>Add employee</h3><div class="bar"><input id="fn" placeholder="Full name"><input id="sn" placeholder="Short name on daily roster"><input id="et" placeholder="Team" value="Cricket"><button class="p" id="ad">Add</button></div>
@@ -225,30 +225,49 @@ async function delEmp(id){const e=emps.find(x=>x.id===id);if(!e)return;
   if(!confirm('Delete '+e.name+'? Their attendance records and notifications will also be deleted. Roster entries stay, but the name will show as unmatched. This cannot be undone.'))return;
   const x=await sb.rpc('remove_employee',{eid:id});if(x.error){err(x.error.message);return}
   const {data}=await sb.from('employees').select('*').order('name');emps=data||emps;await load()}
+const dmin=()=>addD(TODAY(),-60),dmax=()=>addD(TODAY(),365),dok=v=>!v||(/^\d{4}-\d{2}-\d{2}$/.test(v)&&v>=dmin()&&v<=dmax()),dmsg=()=>'Pick a date between '+dmin()+' and '+dmax()+'. Tip: use the calendar icon to pick the date.';
+function matchesFor(d){const M={};
+  rows.filter(r=>r.d===d&&r.kind==='match').forEach(r=>{const k=r.row_no+'|'+r.series,m=M[k]=M[k]||{k,series:r.series,t:r.match_time,s:null,ppl:new Set()};m.ppl.add(r.employee_id);const rp=repT(r),st=rp?rp.s:r.start_min;if(st!=null)m.s=m.s==null?st:Math.min(m.s,st)});
+  rows.filter(r=>r.d===d&&r.kind==='rank').forEach(r=>{const m=M[r.row_no+'|'+r.series];if(m)m.ppl.add(r.employee_id)});
+  return Object.values(M).sort((a,b)=>(a.s??9999)-(b.s??9999))}
 function sendBox(){const teams=[...new Set(emps.map(e=>e.team))];
-  return `<div class="row"><h3>Send notification</h3><div class="s">Tick people, or choose a team, or leave both empty to send to everyone.</div>
+  return `<div class="row"><h3>Send notification</h3>
+  <div class="s"><b>1. Date this change is for</b></div><div class="bar"><input type="date" id="sd" value="${day}" min="${dmin()}" max="${dmax()}"><button type="button" id="sdc" title="No date">✕</button></div>
+  <div class="s"><b>2. Match (optional)</b> Picking one ticks its people and fills in the title and time.</div><select id="sm" style="width:100%"></select>
+  <div class="s" style="margin-top:8px"><b>3. Who should get it?</b> Tick people, or choose a team, or leave both empty for everyone.</div>
   <div class="bar"><select id="st"><option value="">Everyone</option>${teams.map(t=>`<option>${esc(t)}</option>`).join('')}</select><input id="sq" placeholder="Find a person"></div>
-  <div style="max-height:130px;overflow:auto;border:1px solid var(--b);border-radius:10px;padding:6px">${emps.map(e=>`<label style="display:block"><input type="checkbox" class="spc" value="${e.id}" data-n="${esc(e.name.toLowerCase())}"> ${esc(e.name)}</label>`).join('')}</div>
-  <div class="bar"><input id="sti" placeholder="Title" style="flex:1"></div><textarea id="sb" rows="2" style="width:100%" placeholder="Message"></textarea>
-  <div class="bar"><label class="s">Open this day <input type="date" id="sd"></label><label><input type="checkbox" id="su"> Priority</label></div>
-  <div class="bar"><select id="sr"><option value="once">Send once</option><option value="rep">Repeat daily until…</option></select><input type="date" id="sut" style="display:none"></div>
-  <button class="p" id="sgo">Send</button><div id="nh" class="s" style="margin-top:10px">Loading history…</div></div>`}
+  <div id="sp" style="max-height:130px;overflow:auto;border:1px solid var(--b);border-radius:10px;padding:6px">${emps.map(e=>`<label style="display:block"><input type="checkbox" class="spc" value="${e.id}" data-n="${esc(e.name.toLowerCase())}"> ${esc(e.name)}</label>`).join('')}</div>
+  <div class="s" style="margin-top:8px"><b>4. Message</b></div><div class="bar"><input id="sti" placeholder="Title" style="flex:1"></div><textarea id="sb" rows="2" style="width:100%" placeholder="Message"></textarea>
+  <div class="bar"><label><input type="checkbox" id="sk"> Keep showing until</label><input type="time" id="skt"></div>
+  <div class="s">While it is on, the pop-up shows each time they open the app, until they tap Got it or that time passes.</div>
+  <div class="bar"><label><input type="checkbox" id="su"> Priority</label><button class="p" id="sgo">Send</button></div>
+  <div id="nh" class="s" style="margin-top:10px">Loading history…</div></div>`}
 async function histLoad(){const box=$('nh');if(!box)return;
-  const x=await sb.from('notifications').select('*').eq('kind','manual').gte('created_at',new Date(Date.now()-7*864e5).toISOString()).order('created_at',{ascending:false}).limit(500);
-  if(x.error){box.textContent=x.error.message;return}const B={};
-  (x.data||[]).forEach(r=>{const k=r.created_at+'|'+r.title+'|'+r.body,b=B[k]=B[k]||{r,ids:[],to:[]};b.ids.push(r.id);b.to.push(r.employee_id?(emps.find(e=>e.id===r.employee_id)||{name:'?'}).name:r.team||'Everyone')});
-  box.innerHTML='<b>Sent in the last 7 days</b>'+(Object.values(B).map(b=>`<div class="row"><b>${esc(b.r.title)}</b>${b.r.urgent?' <span class="bd lv">Priority</span>':''}<div>${esc(b.r.body)}</div><div class="s">To: ${esc(b.to.slice(0,6).join(', '))}${b.to.length>6?' +'+(b.to.length-6)+' more':''} · ${b.r.until?'repeats until '+b.r.until:'once'} · ${new Date(b.r.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div><button data-dh="${b.ids.join(',')}">Delete</button></div>`).join('')||'<div class="s">Nothing sent yet.</div>');
+  const [x,k]=await Promise.all([sb.from('notifications').select('*').eq('kind','manual').gte('created_at',new Date(Date.now()-7*864e5).toISOString()).order('created_at',{ascending:false}).limit(500),sb.from('notif_ack').select('*')]);
+  if(!box.isConnected)return;if(x.error){box.textContent=x.error.message;return}const B={},AK=k.data||[];
+  (x.data||[]).forEach(r=>{const key=r.created_at+'|'+r.title+'|'+r.body,b=B[key]=B[key]||{r,ids:[],to:[],rec:new Set()};b.ids.push(r.id);b.to.push(r.employee_id?(emps.find(e=>e.id===r.employee_id)||{name:'?'}).name:r.team||'Everyone');
+    if(r.employee_id)b.rec.add(r.employee_id);else emps.filter(e=>e.role!=='admin'&&(!r.team||e.team===r.team)).forEach(e=>b.rec.add(e.id))});
+  const tm=v=>new Date(v).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  box.innerHTML='<div class="bar"><b>Sent in the last 7 days</b><button id="hrf">Refresh</button></div>'+(Object.values(B).map(b=>{
+    const seen=[...b.rec].filter(id=>AK.some(a=>b.ids.includes(a.notification_id)&&a.employee_id===id)),miss=[...b.rec].filter(id=>!seen.includes(id)),nm=id=>(emps.find(e=>e.id===id)||{name:'?'}).name;
+    return `<div class="row"><b>${esc(b.r.title)}</b>${b.r.urgent?' <span class="bd lv">Priority</span>':''}<div>${esc(b.r.body)}</div><div class="s">To: ${esc(b.to.slice(0,6).join(', '))}${b.to.length>6?' +'+(b.to.length-6)+' more':''} · ${b.r.until_at?'showing until '+tm(b.r.until_at):b.r.until?'repeats until '+b.r.until:'once'} · ${new Date(b.r.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+    ${b.r.until_at?`<div class="s"><b>Got it: ${seen.length} of ${b.rec.size}</b>${miss.length?' · <span style="color:var(--r)">Not yet: '+esc(miss.map(nm).join(', '))+'</span>':''}${seen.length?' · Seen by: '+esc(seen.map(nm).join(', ')):''}</div>`:''}<button data-dh="${b.ids.join(',')}">Delete</button></div>`}).join('')||'<div class="s">Nothing sent yet.</div>');
+  box.querySelector('#hrf').onclick=histLoad;
   box.querySelectorAll('[data-dh]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this message for everyone it was sent to?'))return;await sb.from('notifications').delete().in('id',b.dataset.dh.split(',').map(Number));histLoad()})}
 function wireManage(){
   if($('sgo')){
+    const fillM=()=>{const d=$('sd').value,L=dok(d)&&d?matchesFor(d):[];$('sm').innerHTML='<option value="">No match (general message)</option>'+L.map(m=>`<option value="${esc(m.k)}">${esc(m.t||'')} · ${esc(m.series)}</option>`).join('')};
+    fillM();$('sd').onchange=fillM;$('sdc').onclick=()=>{$('sd').value='';fillM()};
+    $('sm').onchange=e=>{const m=matchesFor($('sd').value).find(x=>x.k===e.target.value);document.querySelectorAll('.spc').forEach(c=>c.checked=!!m&&m.ppl.has(c.value));
+      if(m){$('sti').value='Update: '+m.series;if(m.s!=null){$('sk').checked=true;$('skt').value=pad(Math.floor(m.s/60)%24)+':'+pad(m.s%60)}}};
     $('sq').oninput=e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.spc').forEach(c=>c.parentElement.style.display=c.dataset.n.includes(q)?'block':'none')};
-    $('sr').onchange=e=>{$('sut').style.display=e.target.value==='rep'?'':'none'};
-    $('sgo').onclick=async()=>{const ti=$('sti').value.trim(),bo=$('sb').value.trim(),ppl=[...document.querySelectorAll('.spc:checked')].map(c=>c.value),rp=$('sr').value==='rep',ut=$('sut').value;
-      if(!bo&&!ti)return err('Write a message first.');if(rp&&!ut)return err('Pick the date to repeat until.');
-      const base={title:ti||'Message from Admin',body:bo||ti,d:$('sd').value||null,kind:'manual',urgent:$('su').checked,until:rp?ut:null};
+    $('sgo').onclick=async()=>{const ti=$('sti').value.trim(),bo=$('sb').value.trim(),ppl=[...document.querySelectorAll('.spc:checked')].map(c=>c.value),dd=$('sd').value;
+      if(!bo&&!ti)return err('Write a message first.');if(!dok(dd))return err(dmsg());
+      let ua=null;if($('sk').checked){if(!$('skt').value)return err('Pick the time to keep it showing until.');const u=new Date((dd||TODAY())+'T'+$('skt').value+':00');if(u.getTime()<=Date.now())return err('That time has already passed.');ua=u.toISOString()}
+      const base={title:ti||'Message from Admin',body:bo||ti,d:dd||null,kind:'manual',urgent:$('su').checked,until:null,until_at:ua};
       const N=ppl.length?ppl.map(id=>({...base,employee_id:id,team:null})):[{...base,employee_id:null,team:$('st').value||null}];
       const x=await sb.from('notifications').insert(N);if(x.error)return err(x.error.message);err('');
-      ['sti','sb','sd'].forEach(i=>$(i).value='');document.querySelectorAll('.spc').forEach(c=>c.checked=false);$('sgo').textContent='Sent ✓';setTimeout(()=>{if($('sgo'))$('sgo').textContent='Send'},1800);histLoad()};
+      ['sti','sb'].forEach(i=>$(i).value='');$('sk').checked=false;$('skt').value='';$('sm').value='';document.querySelectorAll('.spc').forEach(c=>c.checked=false);$('sgo').textContent='Sent ✓';setTimeout(()=>{if($('sgo'))$('sgo').textContent='Send'},1800);histLoad()};
     histLoad()}
   const pv=()=>{const ds=[...new Set(prev.out.map(r=>r.d))].sort(),nn=prev.out.filter(r=>r.kind==='note').length;
     $('pv2').innerHTML=`${ds.length} date(s) (${ds[0]||'-'} → ${ds[ds.length-1]||'-'}): ${new Set(prev.out.filter(r=>r.kind==='match').map(r=>r.d+'|'+r.row_no)).size} matches, ${prev.out.length} entries, ${nn} note(s).<br>${prev.sk&&prev.sk.length?'⚠ Skipped '+prev.sk.length+' row(s): '+esc(prev.sk.join('; '))+'<br>':''}${prev.unm.length?'⚠ Unmatched names: '+esc(prev.unm.join(', '))+' (add them under Add employee, then preview again)':'All names matched.'}`;$('sv').disabled=!prev.out.length};
@@ -259,7 +278,7 @@ function wireManage(){
     for(let i=0;i<out.length;i+=400){x=await sb.from('assignments').insert(out.slice(i,i+400));if(x.error)return err(x.error.message)}
     let ne='';if(nots.length){x=await sb.from('notifications').insert(nots);if(x.error)ne=x.error.message}
     prev=null;tab='day';day=ds[0];await load();waBox(tn,ds,out,ne)};
-  $('na').onclick=async()=>{if(!$('nf').value||!$('nt').value||!$('nb').value)return;await sb.from('notices').insert({date_from:$('nf').value,date_to:$('nt').value,team:$('nteam').value||null,body:$('nb').value,urgent:$('nu').checked});load()};
+  $('na').onclick=async()=>{if(!$('nf').value||!$('nt').value||!$('nb').value)return;if(!dok($('nf').value)||!dok($('nt').value)){err(dmsg());return}await sb.from('notices').insert({date_from:$('nf').value,date_to:$('nt').value,team:$('nteam').value||null,body:$('nb').value,urgent:$('nu').checked});load()};
   document.querySelectorAll('[data-dn]').forEach(b=>b.onclick=async()=>{await sb.from('notices').delete().eq('id',b.dataset.dn);load()});
   $('ad').onclick=async()=>{if(!$('fn').value.trim())return;const x=await sb.from('employees').insert({name:$('fn').value.trim(),short_name:$('sn').value.trim()||null,team:$('et').value.trim()||'Cricket'});if(x.error)return err(x.error.message);const {data}=await sb.from('employees').select('*').order('name');emps=data;render()};
   $('ae').onclick=async()=>{const r=$('ne').value.split('\n').map(l=>l.split(/\||\t/)).filter(a=>a[0].trim()).map(a=>({name:a[0].trim(),short_name:(a[1]||'').trim()||null,team:(a[2]||'Cricket').trim()}));
@@ -269,20 +288,23 @@ function wireManage(){
   document.querySelectorAll('[data-r]').forEach(s=>s.onchange=async()=>{if(me.role!=='admin')return err('Only an admin can change roles.');await sb.from('employees').update({role:s.value}).eq('id',s.dataset.r)});
 }
 const addD=(d,n)=>{const t=new Date(d+'T00:00');t.setDate(t.getDate()+n);return iso(t)};
-const live=x=>x.until?TODAY()<=x.until:x.d?TODAY()<=addD(x.d,2):Date.now()-new Date(x.created_at)<2*864e5;
+const live=x=>x.until_at?Date.now()<new Date(x.until_at).getTime():x.until?TODAY()<=x.until:x.d?TODAY()<=addD(x.d,2):Date.now()-new Date(x.created_at)<2*864e5;
 const myAll=()=>notifs.filter(x=>(x.employee_id===me.id||(!x.employee_id&&(!x.team||x.team===me.team)))&&live(x));
-const myN=()=>myAll().filter(x=>!x.until);
+const myN=()=>myAll().filter(x=>!x.until&&!x.until_at);
+const timed=()=>myAll().filter(x=>x.until_at),timedPending=()=>me.role==='admin'?[]:timed().filter(x=>!ACK.some(a=>a.notification_id===x.id&&a.employee_id===me.id));
 const act=()=>{const t=TODAY();return notices.filter(n=>n.date_from<=t&&t<=n.date_to&&(!n.team||n.team===me.team)).concat(myAll().filter(x=>x.until).map(x=>({body:(x.title?x.title+': ':'')+x.body,urgent:x.urgent,date_to:x.until}))).sort((a,b)=>(b.urgent?1:0)-(a.urgent?1:0))};
 const shownKey=()=>'shown'+me.id+TODAY();
-const unread=()=>myN().filter(x=>new Date(x.created_at)>new Date(localStorage['seen'+me.id]||0)).length+(localStorage[shownKey()]?0:act().length);
+const unread=()=>myN().filter(x=>new Date(x.created_at)>new Date(localStorage['seen'+me.id]||0)).length+(localStorage[shownKey()]?0:act().length)+timedPending().length;
 const wd=d=>new Date(d+'T00:00').toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'});
 function bellPanel(){const l=myN(),seen=new Date(localStorage['seen'+me.id]||0),R=act();
   $('modal').innerHTML=`<div class="mod"><div class="box" style="max-height:80vh;overflow:auto"><div style="display:flex;justify-content:space-between;align-items:center;position:sticky;top:-18px;background:var(--c);padding:6px 0"><h3 style="margin:0">Notifications</h3><button id="cl0">✕</button></div>
+  ${timed().map(n=>{const ok=me.role==='admin'||ACK.some(a=>a.notification_id===n.id&&a.employee_id===me.id);return `<div class="row ${n.urgent?'urg':''}"><b>${n.urgent?'⚠ ':'📣 '}${esc(n.title)}</b><div>${esc(n.body)}</div><div class="s">Showing until ${new Date(n.until_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>${ok?'<div class="s">✓ Got it</div>':'<button class="p" data-ack="'+n.id+'">Got it</button>'}${n.d?' <button data-vd="'+n.d+'">View '+wd(n.d)+'</button>':''}</div>`}).join('')}
   ${R.map(n=>`<div class="row ${n.urgent?'urg':''}"><b>${n.urgent?'⚠ Priority reminder':'Reminder'}</b><div>${esc(n.body)}</div><div class="s">Until ${n.date_to}</div></div>`).join('')}
   ${l.map(x=>`<div class="row ${x.urgent?'urg ':''}${new Date(x.created_at)>seen?'me':''}"><b>${esc(x.title)}</b><div class="s">${esc(x.body)} · ${new Date(x.created_at).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>${x.d?'<button data-vd="'+x.d+'">View '+wd(x.d)+'</button>':''}</div>`).join('')}
-  ${R.length||l.length?'':'<div class="s">Nothing yet.</div>'}<button class="p" id="cl">Close</button></div></div>`;
+  ${R.length||l.length||timed().length?'':'<div class="s">Nothing yet.</div>'}<button class="p" id="cl">Close</button></div></div>`;
   const cls=()=>{localStorage['seen'+me.id]=myN().reduce((a,x)=>x.created_at>a?x.created_at:a,'')||new Date().toISOString();localStorage[shownKey()]=1;$('modal').innerHTML='';render()};
-  $('cl').onclick=cls;$('cl0').onclick=cls;document.querySelectorAll('[data-vd]').forEach(b=>b.onclick=()=>{day=b.dataset.vd;tab='day';cls()})}
+  $('cl').onclick=cls;$('cl0').onclick=cls;document.querySelectorAll('[data-vd]').forEach(b=>b.onclick=()=>{day=b.dataset.vd;tab='day';cls()});
+  document.querySelectorAll('[data-ack]').forEach(b=>b.onclick=async()=>{const id=+b.dataset.ack;await sb.rpc('ack_notif',{p_id:id});ACK.push({notification_id:id,employee_id:me.id});bellPanel();render()})}
 const unreadPopup=()=>{if(unread())bellPanel();else $('modal').innerHTML=''};
 function nextBanner(all){if(tab==='mng')return'';const n=all.filter(p=>p.emp===me.id&&p.d>=TODAY()&&p.s!=null).sort((a,b)=>a.d.localeCompare(b.d))[0];
   return n?`<div class="row me"><b>Your next shift</b><div>${wd(n.d)} · Shift ${n.shift} · ${hm(n.s)}–${hm(n.e)}${n.rep?' · Reporting '+hm(n.s):''}</div></div>`:'<div class="row s">No upcoming shift found for you yet.</div>'}
@@ -349,7 +371,7 @@ async function quickSync(force){if(!me)return;
   if(changed||force){notifs=f.data;const [a,n]=await Promise.all([pageRows(),sb.from('notices').select('*')]);rows=a.data||rows;notices=n.data||notices;
     if(tab!=='mng'&&tab!=='att')render();else updTitle();if(changed&&tab!=='mng'&&!$('modal').innerHTML)unreadPopup()}}
 setInterval(()=>{if(!document.hidden)quickSync()},20000);
-const wake=()=>{if(me&&!document.hidden)quickSync(true)};
+const wake=async()=>{if(me&&!document.hidden){await quickSync(true);if(timedPending().length&&!$('modal').innerHTML&&tab!=='mng')bellPanel()}};
 document.addEventListener('visibilitychange',wake);window.addEventListener('focus',wake);window.addEventListener('online',wake);window.addEventListener('pageshow',wake);
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 boot();
